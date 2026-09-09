@@ -6,6 +6,7 @@ import { AppWindow } from "./app-window";
 import { ContactSheet } from "./contact-sheet";
 import { ChatApp } from "@/components/apps/chat-app";
 import { ContactsApp } from "@/components/apps/contacts-app";
+import { DiaryApp } from "@/components/apps/diary-app";
 import { SettingsApp } from "@/components/apps/settings-app";
 import { PlaceholderApp } from "@/components/apps/placeholder-app";
 import { appById } from "@/lib/apps/registry";
@@ -109,6 +110,8 @@ export function Phone() {
             <ChatApp contacts={contacts} settings={settings} onOpenProfile={setSheet} />
           ) : app.id === "contacts" ? (
             <ContactsApp contacts={contacts} onOpen={setSheet} onAdd={() => void addContact()} />
+          ) : app.id === "diary" ? (
+            <DiaryApp contacts={contacts} settings={settings} />
           ) : app.id === "settings" ? (
             <SettingsApp settings={settings} onChange={patchSettings} onReloadAll={reloadAll} />
           ) : (

@@ -25,6 +25,13 @@
 
   --ease-ios: cubic-bezier(0.32, 0.72, 0, 1);
   --dur-app: 420ms;
+
+  /* 手写体。日记 / 信 / 便签的正文用它——那些东西是"写上去的"，
+     不是"印上去的"。字体本体切成了 unicode-range 分片
+     （见 tools/slice-font.py），只有真的渲染到手写体的页面才会触发下载，
+     而且只下用到的那几片。
+     换字体只要改这一个值：全项目没有第二处写死字体名。 */
+  --font-hand: "ZhiMangXing", "Kaiti SC", "STKaiti", "楷体", serif;
 }
 
 /* 浅色壁纸下的一套 */

@@ -2,14 +2,27 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadMsgs, saveMsgs, newId, type Msg } from "@/lib/chat/store";
 import { displayName, type Contact } from "@/lib/os/contacts";
+import { dayLabel, loadDiary, type DiaryEntry } from "@/lib/diary/store";
 import type { Settings } from "@/lib/os/settings";
 
-function systemPrompt(c: Contact, me: Settings) {
+function systemPrompt(c: Contact, me: Settings, shared: DiaryEntry[]) {
   const bits: string[] = [];
   if (c.name.trim()) bits.push(`你叫${c.name.trim()}。`);
   if (me.userName.trim()) bits.push(`跟你说话的人叫${me.userName.trim()}。`);
   if (c.persona.trim()) bits.push(c.persona.trim());
   // 只给名字，不挂形容词——挂了模型就去演那个词。
+
+  // 能看到的只有**公开的**日记。私密那些一个字都不进来——
+  // 这是整个交换日记机制的地基，漏了就什么都不成立。
+  const open = shared.filter((e) => !e.secret).slice(0, 3);
+  if (open.length) {
+    bits.push(
+      "下面是日记本里对你公开的几篇。不用主动提起，除非她说到：\n" +
+        open
+          .map((e) => `【${dayLabel(e.at)}·${e.author === "me" ? "她写的" : "你写的"}】${e.text.slice(0, 400)}`)
+          .join("\n"),
+    );
+  }
   return bits.join("\n");
 }
 
@@ -36,6 +49,7 @@ export function ChatApp({
   const [openId, setOpenId] = useState<string | null>(null);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [previews, setPreviews] = useState<Record<string, string>>({});
+  const [diary, setDiary] = useState<DiaryEntry[]>([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -65,6 +79,9 @@ export function ChatApp({
     let alive = true;
     void loadMsgs(openId).then((rows) => {
       if (alive) setMsgs(rows);
+    });
+    void loadDiary(openId).then((rows) => {
+      if (alive) setDiary(rows);
     });
     return () => {
       alive = false;
@@ -109,8 +126,11 @@ export function ChatApp({
           apiKey: settings.apiKey,
           // 联系人可以覆盖全局默认模型
           model: contact.model.trim() || settings.model,
-          system: systemPrompt(contact, settings),
-          messages: history.map((m) => ({ role: m.role, content: m.content })),
+          system: systemPrompt(contact, settings, diary),
+          // event 是「发生了一件事」的痕迹，不是谁说的话，不发给模型。
+          messages: history
+            .filter((m) => m.role !== "event")
+            .map((m) => ({ role: m.role, content: m.content })),
         }),
       });
       if (!res.ok || !res.body) throw new Error((await res.text()) || `HTTP ${res.status}`);
@@ -169,7 +189,7 @@ export function ChatApp({
     } finally {
       setBusy(false);
     }
-  }, [text, busy, contact, msgs, settings]);
+  }, [text, busy, contact, msgs, settings, diary]);
 
   // ── 会话列表 ────────────────────────────────────────────────
   if (!contact) {
@@ -234,7 +254,14 @@ export function ChatApp({
           </div>
         )}
 
-        {msgs.map((m) => (
+        {msgs.map((m) =>
+          m.role === "event" ? (
+            // 它没开口，只是有件事发生了。样式刻意和日期分割线同一档。
+            <div key={m.id} className="self-center px-6 py-1 text-[11px] text-center leading-relaxed"
+              style={{ color: "var(--ink-faint)" }}>
+              {m.content}
+            </div>
+          ) : (
           <div
             key={m.id}
             className={`max-w-[78%] px-3.5 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap break-words rounded-[20px] ${
@@ -253,7 +280,8 @@ export function ChatApp({
           >
             {m.content}
           </div>
-        ))}
+          ),
+        )}
 
         {busy && (
           <div

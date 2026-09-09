@@ -65,6 +65,7 @@ export const APPS: AppDef[] = [
     id: "diary",
     name: "日记",
     tint: "oklch(0.75 0.11 85)",
+    ready: true,
     icon: <Icon><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z" /><path d="M5 17h11" /><path d="M9 8h6M9 11h4" /></Icon>,
   },
   {

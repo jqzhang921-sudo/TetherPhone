@@ -1,7 +1,10 @@
 "use client";
 import { getAllBy, putMany, put, clearStore } from "@/lib/db/idb";
 
-export type Role = "user" | "assistant";
+/// `event` 不是谁说的话，是「发生了一件事」——比如把一篇私密日记公开给对方看。
+/// 在聊天里渲染成一行居中的小字，**不发给模型**（模型该看到的是日记正文本身，
+/// 那是另一条注入路径）。
+export type Role = "user" | "assistant" | "event";
 
 /// 每条消息都带 contactId —— 换联系人就是换一整段对话。
 export type Msg = {

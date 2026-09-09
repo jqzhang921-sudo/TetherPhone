@@ -18,6 +18,11 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="zh-CN">
+      <head>
+        {/* 分片字体的 @font-face 表。生成物，不进构建管线——
+            换字体重跑 tools/slice-font.py 就行。 */}
+        <link rel="stylesheet" href="/fonts/zhimangxing/ZhiMangXing.css" />
+      </head>
       <body>{children}</body>
     </html>
   );
