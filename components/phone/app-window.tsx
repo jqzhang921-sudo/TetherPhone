@@ -52,12 +52,20 @@ export function AppWindow({
         transition: start.current === null
           ? "transform var(--dur-app) var(--ease-ios), opacity 260ms var(--ease-ios), border-radius var(--dur-app) var(--ease-ios)"
           : "none",
-        background: "color-mix(in oklab, var(--glass-tint) 88%, transparent)",
-        backdropFilter: "blur(28px) saturate(1.5)",
-        WebkitBackdropFilter: "blur(28px) saturate(1.5)",
+        // 满屏的 app 自己画背景；不画的话窗口这层毛玻璃会盖住它。
+        background: app.bleed
+          ? "transparent"
+          : "color-mix(in oklab, var(--glass-tint) 88%, transparent)",
+        backdropFilter: app.bleed ? "none" : "blur(28px) saturate(1.5)",
+        WebkitBackdropFilter: app.bleed ? "none" : "blur(28px) saturate(1.5)",
       }}
     >
-      <StatusBar />
+      {/* 满屏时内容垫在最底下，状态栏和 home 条浮在它上面 */}
+      {app.bleed && <div className="absolute inset-0">{children}</div>}
+
+      <div className={app.bleed ? "relative z-10" : "contents"}>
+        <StatusBar />
+      </div>
       {!app.ownHeader && (
         <header className="px-5 pt-1 pb-3 shrink-0">
           <h1 className="text-[26px] font-semibold" style={{ color: "var(--ink)" }}>
@@ -66,11 +74,15 @@ export function AppWindow({
         </header>
       )}
 
-      <div className="flex-1 min-h-0 flex flex-col">{children}</div>
+      {app.bleed ? (
+        <div className="flex-1 min-h-0 pointer-events-none" />
+      ) : (
+        <div className="flex-1 min-h-0 flex flex-col">{children}</div>
+      )}
 
       {/* home 条：上滑或点一下回桌面 */}
       <div
-        className="shrink-0 pt-2 pb-2 flex justify-center"
+        className="shrink-0 pt-2 pb-2 flex justify-center relative z-10"
         style={{ touchAction: "none" }}
         onPointerDown={(e) => { start.current = e.clientY; }}
         onPointerMove={(e) => {

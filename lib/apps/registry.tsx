@@ -13,6 +13,9 @@ export type AppDef = {
   /// app 自己画标题栏。聊天要在标题的位置放返回键和对方的头像，
   /// 用不了统一那条「大标题 = app 名」。
   ownHeader?: boolean;
+  /// 满屏：内容铺到状态栏和 home 条底下，窗口自己不画背景。
+  /// 天气要这个——天空必须是整块的，被一条毛玻璃横切开就废了。
+  bleed?: boolean;
 };
 
 const s = {
@@ -110,6 +113,9 @@ export const APPS: AppDef[] = [
     id: "weather",
     name: "天气",
     tint: "oklch(0.77 0.11 220)",
+    ready: true,
+    ownHeader: true,
+    bleed: true,
     icon: <Icon><path d="M7.5 18h9a3.5 3.5 0 0 0 .3-7 5 5 0 0 0-9.6-1.2A3.6 3.6 0 0 0 7.5 18z" /></Icon>,
   },
 ];

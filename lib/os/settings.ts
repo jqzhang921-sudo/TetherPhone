@@ -13,6 +13,9 @@ export type Settings = {
   userName: string;
   userEmoji: string;
   userSignature: string;
+  /// 手动指定的天气城市。留空 = 自动定位。
+  /// 有这个字段是因为按 IP 定的是**网络出口**，家宽常常落在省会甚至邻省。
+  weatherPlace: string;
 
   /// ⚠️ 下面两个是旧版遗留，只用来在第一次启动时把老数据搬进联系人。
   /// 设置页不再编辑它们。见 contacts.ensureSeed。
@@ -28,6 +31,7 @@ export const DEFAULT_SETTINGS: Settings = {
   userName: "",
   userEmoji: "🌱",
   userSignature: "",
+  weatherPlace: "",
 };
 
 const KEY = "tether.settings.v1";
