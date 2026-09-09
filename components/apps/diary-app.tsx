@@ -13,15 +13,10 @@ import {
   type DiaryEntry,
   type PaperRule,
 } from "@/lib/diary/store";
+import { handInk } from "@/lib/paper";
 import { loadMsgs, newId, saveMsgs, type Msg } from "@/lib/chat/store";
 import { displayName, type Contact } from "@/lib/os/contacts";
 import type { Settings } from "@/lib/os/settings";
-
-const hand: React.CSSProperties = {
-  fontFamily: "var(--font-hand)",
-  color: "oklch(0.28 0.02 250)",
-  lineHeight: "30px",
-};
 
 /// 一次性把整条流读完。日记不需要逐字出现——它是「写好了拿给你看」，
 /// 不是「正在说话」。
@@ -161,7 +156,7 @@ export function DiaryApp({
               onChange={(e) => setDraft({ ...draft, text: e.target.value })}
               placeholder="今天…"
               className="w-full h-full bg-transparent outline-none resize-none text-[19px]"
-              style={hand}
+              style={handInk}
             />
           </div>
         </div>
@@ -246,7 +241,7 @@ export function DiaryApp({
             <div className="text-[12px] mb-3" style={{ color: "oklch(0.45 0.02 250)", fontFamily: "var(--font-hand)" }}>
               {dayLabel(reading.at)} · {mine ? "你" : displayName(contact)}
             </div>
-            <p className="text-[19px] whitespace-pre-wrap" style={hand}>
+            <p className="text-[19px] whitespace-pre-wrap" style={handInk}>
               {reading.text}
             </p>
           </div>
@@ -352,7 +347,7 @@ export function DiaryApp({
               {dayLabel(e.at)}
               {e.secret && <Lock />}
             </span>
-            <span className="block text-[16px] line-clamp-2" style={{ ...hand, lineHeight: "26px" }}>
+            <span className="block text-[16px] line-clamp-2" style={{ ...handInk, lineHeight: "26px" }}>
               {sealed ? "……" : e.text}
             </span>
           </button>

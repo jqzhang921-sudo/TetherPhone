@@ -5,10 +5,13 @@ export function AppIcon({
   app,
   onOpen,
   showLabel = true,
+  badge = 0,
 }: {
   app: AppDef;
   onOpen: (id: string, center: { x: number; y: number }) => void;
   showLabel?: boolean;
+  /// 未处理的数量。0 就不画——空的红点比没有红点更烦人。
+  badge?: number;
 }) {
   return (
     <button
@@ -21,11 +24,21 @@ export function AppIcon({
         onOpen(app.id, { x: r.left + r.width / 2, y: r.top + r.height / 2 });
       }}
     >
-      <span
-        className="glass-icon grid place-items-center rounded-[17px] w-[58px] h-[58px]"
-        style={{ color: app.tint }}
-      >
-        {app.icon}
+      <span className="relative">
+        <span
+          className="glass-icon grid place-items-center rounded-[17px] w-[58px] h-[58px]"
+          style={{ color: app.tint }}
+        >
+          {app.icon}
+        </span>
+        {badge > 0 && (
+          <span
+            className="absolute -top-1 -right-1 min-w-[19px] h-[19px] px-1 rounded-full grid place-items-center text-[11px] font-medium tabular-nums"
+            style={{ background: "oklch(0.62 0.21 25)", color: "oklch(0.99 0 0)" }}
+          >
+            {badge > 99 ? "99+" : badge}
+          </span>
+        )}
       </span>
       {showLabel && (
         <span

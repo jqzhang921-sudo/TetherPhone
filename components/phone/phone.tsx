@@ -7,6 +7,7 @@ import { ContactSheet } from "./contact-sheet";
 import { ChatApp } from "@/components/apps/chat-app";
 import { ContactsApp } from "@/components/apps/contacts-app";
 import { DiaryApp } from "@/components/apps/diary-app";
+import { LettersApp } from "@/components/apps/letters-app";
 import { SettingsApp } from "@/components/apps/settings-app";
 import { PlaceholderApp } from "@/components/apps/placeholder-app";
 import { appById } from "@/lib/apps/registry";
@@ -20,6 +21,7 @@ import {
   type Contact,
 } from "@/lib/os/contacts";
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from "@/lib/os/settings";
+import { loadLetters, unreadCount } from "@/lib/letters/store";
 
 type Open = { id: string; origin: { x: number; y: number } };
 
@@ -32,14 +34,26 @@ export function Phone() {
   const [open, setOpen] = useState<Open | null>(null);
   const [closing, setClosing] = useState(false);
   const [sheet, setSheet] = useState<Contact | null>(null);
+  const [badges, setBadges] = useState<Record<string, number>>({});
   const device = useRef<HTMLDivElement>(null);
+
+  /// 桌面上的红点。现在只有「还没拆的信」一种，但入口留成通用的
+  /// ——动态、备忘录以后都要往这儿挂。
+  const refreshBadges = useCallback(async (list: Contact[]) => {
+    let letters = 0;
+    for (const c of list) letters += unreadCount(await loadLetters(c.id));
+    setBadges({ letters });
+  }, []);
 
   const reloadAll = useCallback(() => {
     const s = loadSettings();
     setSettings(s);
     // 第一次进来种一个空联系人，顺手把旧版存在全局设置里的名字/人设搬过来。
-    void ensureSeed({ aiName: s.aiName, persona: s.persona }).then(setContacts);
-  }, []);
+    void ensureSeed({ aiName: s.aiName, persona: s.persona }).then((list) => {
+      setContacts(list);
+      void refreshBadges(list);
+    });
+  }, [refreshBadges]);
 
   useEffect(reloadAll, [reloadAll]);
 
@@ -101,7 +115,7 @@ export function Phone() {
       {locked ? (
         <LockScreen onUnlock={() => setLocked(false)} />
       ) : (
-        <HomeScreen onOpen={openApp} />
+        <HomeScreen onOpen={openApp} badges={badges} />
       )}
 
       {open && app && (
@@ -112,6 +126,12 @@ export function Phone() {
             <ContactsApp contacts={contacts} onOpen={setSheet} onAdd={() => void addContact()} />
           ) : app.id === "diary" ? (
             <DiaryApp contacts={contacts} settings={settings} />
+          ) : app.id === "letters" ? (
+            <LettersApp
+              contacts={contacts}
+              settings={settings}
+              onUnreadChange={() => void refreshBadges(contacts)}
+            />
           ) : app.id === "settings" ? (
             <SettingsApp settings={settings} onChange={patchSettings} onReloadAll={reloadAll} />
           ) : (

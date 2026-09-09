@@ -42,7 +42,13 @@ function ClockWidget() {
   );
 }
 
-export function HomeScreen({ onOpen }: { onOpen: Open }) {
+export function HomeScreen({
+  onOpen,
+  badges = {},
+}: {
+  onOpen: Open;
+  badges?: Record<string, number>;
+}) {
   return (
     <div className="absolute inset-0 flex flex-col anim-fade">
       <StatusBar />
@@ -53,7 +59,7 @@ export function HomeScreen({ onOpen }: { onOpen: Open }) {
       <div className="flex-1 px-5 pt-6 overflow-y-auto no-bar">
         <div className="grid grid-cols-4 gap-x-4 gap-y-5">
           {gridApps.map((a) => (
-            <AppIcon key={a.id} app={a} onOpen={onOpen} />
+            <AppIcon key={a.id} app={a} onOpen={onOpen} badge={badges[a.id] ?? 0} />
           ))}
         </div>
       </div>
@@ -67,7 +73,7 @@ export function HomeScreen({ onOpen }: { onOpen: Open }) {
         <div className="glass rounded-[30px] px-3 py-3">
           <div className="grid grid-cols-4 gap-3">
             {dockApps.map((a) => (
-              <AppIcon key={a.id} app={a} onOpen={onOpen} showLabel={false} />
+              <AppIcon key={a.id} app={a} onOpen={onOpen} showLabel={false} badge={badges[a.id] ?? 0} />
             ))}
           </div>
         </div>

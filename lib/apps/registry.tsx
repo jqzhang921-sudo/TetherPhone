@@ -72,6 +72,7 @@ export const APPS: AppDef[] = [
     id: "letters",
     name: "信",
     tint: "oklch(0.78 0.10 55)",
+    ready: true,
     icon: <Icon><rect x="3" y="6" width="18" height="12" rx="2.5" /><path d="M3.5 7.5l7.6 5.4a1.6 1.6 0 0 0 1.8 0l7.6-5.4" /></Icon>,
   },
   {
