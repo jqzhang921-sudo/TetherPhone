@@ -1,0 +1,142 @@
+@import "tailwindcss";
+
+/* ─────────────────────────────────────────────────────────────
+   玻璃系统
+
+   三条规矩是从 phone-ai-assistant 搬过来的，都是真机上撞出来的，
+   不是设计偏好：
+
+   1. 浅底靠阴影不靠描边，深底不画阴影靠一道暖白亮边。
+      两边用同一套 = 浅底上白描白等于没画，暗底上黑影看不见。
+   2. 高 alpha + 小模糊是一对。原来靠大模糊兼职撑可读性，
+      结果背景糊成一片灰，选什么壁纸都一样。
+   3. 承载文字的表面必须自己保证对比度，不能靠"透出底下的颜色"成立
+      —— 底下换成照片就全废。
+
+   颜色运算一律走 OKLab：HSL 的饱和度不是感知量，同一个数值在不同色相上
+   不是同一种"花"。浏览器原生支持 oklch() / color-mix(in oklab)，
+   不用自己写转换。
+   ───────────────────────────────────────────────────────────── */
+
+:root {
+  --phone-w: 390px;
+  --phone-h: 844px;
+  --phone-radius: 54px;
+
+  --ease-ios: cubic-bezier(0.32, 0.72, 0, 1);
+  --dur-app: 420ms;
+}
+
+/* 浅色壁纸下的一套 */
+[data-tone="light"] {
+  --ink: oklch(0.22 0.02 60);
+  --ink-dim: oklch(0.42 0.015 60);
+  --ink-faint: oklch(0.58 0.01 60);
+
+  --glass-tint: oklch(1 0 0);
+  --glass-alpha: 62%;
+  --glass-alpha-strong: 78%;
+  --glass-blur: 16px;
+
+  /* 浅底：不画描边，靠阴影把卡片从背景里托起来 */
+  --glass-edge: transparent;
+  --glass-shadow: 0 1px 2px oklch(0 0 0 / 0.06), 0 8px 24px oklch(0 0 0 / 0.10);
+}
+
+/* 深色壁纸下的一套 */
+[data-tone="dark"] {
+  --ink: oklch(0.97 0.005 80);
+  --ink-dim: oklch(0.82 0.01 80);
+  --ink-faint: oklch(0.66 0.01 80);
+
+  --glass-tint: oklch(0.28 0.012 70);
+  --glass-alpha: 58%;
+  --glass-alpha-strong: 72%;
+  --glass-blur: 16px;
+
+  /* 深底：黑影看不见，靠一道暖白亮边划出卡片的界 */
+  --glass-edge: oklch(1 0 0 / 0.14);
+  --glass-shadow: none;
+}
+
+* { -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overscroll-behavior: none;
+}
+
+body {
+  background: oklch(0.16 0.008 260);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "PingFang SC", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  color: var(--ink);
+}
+
+/* ── 玻璃本体 ───────────────────────────────────────────────── */
+
+.glass {
+  background: color-mix(in oklab, var(--glass-tint) var(--glass-alpha), transparent);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.7);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.7);
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-shadow);
+}
+
+/* 要压住文字的那种，透明度再高一档 */
+.glass-strong {
+  background: color-mix(in oklab, var(--glass-tint) var(--glass-alpha-strong), transparent);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.7);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.7);
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-shadow);
+}
+
+/* 图标那种小方块：模糊更小，省得十几个同屏时糊成一片 */
+.glass-icon {
+  background: color-mix(in oklab, var(--glass-tint) 55%, transparent);
+  backdrop-filter: blur(10px) saturate(1.8);
+  -webkit-backdrop-filter: blur(10px) saturate(1.8);
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-shadow);
+}
+
+/* ── 动效 ───────────────────────────────────────────────────── */
+
+@keyframes fade-in { from { opacity: 0 } to { opacity: 1 } }
+@keyframes rise    { from { opacity: 0; transform: translateY(12px) } to { opacity: 1; transform: none } }
+
+.anim-fade { animation: fade-in 240ms var(--ease-ios) both; }
+.anim-rise { animation: rise 320ms var(--ease-ios) both; }
+
+/* 滚动条：手机上不该看见 */
+.no-bar { scrollbar-width: none; }
+.no-bar::-webkit-scrollbar { display: none; }
+
+/* ── 设备框 ─────────────────────────────────────────────────────
+   桌面上是一台居中的手机；真手机上直接铺满。
+   高度用 dvh —— vh 在移动浏览器里不减地址栏，底部会被切掉。 */
+
+.device {
+  position: relative;
+  width: var(--phone-w);
+  height: var(--phone-h);
+  border-radius: var(--phone-radius);
+  overflow: hidden;
+  isolation: isolate;
+  box-shadow:
+    0 0 0 10px oklch(0.19 0.006 265),
+    0 0 0 11px oklch(0.34 0.008 265),
+    0 30px 70px oklch(0 0 0 / 0.55);
+}
+
+@media (max-width: 480px) {
+  .device {
+    width: 100%;
+    height: 100dvh;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}
