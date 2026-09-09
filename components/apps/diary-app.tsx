@@ -253,7 +253,7 @@ export function DiaryApp({
         </div>
 
         <div className="shrink-0 px-4 pb-2">
-          {reading.secret ? (
+          {reading.secret && mine ? (
             <button
               onClick={async () => {
                 const opened = { ...reading, secret: false };
@@ -264,9 +264,7 @@ export function DiaryApp({
                   id: newId(),
                   contactId: contact.id,
                   role: "event",
-                  content: mine
-                    ? `你把 ${dayLabel(reading.at)} 那篇日记给${displayName(contact)}看了`
-                    : `${displayName(contact)}把 ${dayLabel(reading.at)} 那篇日记给你看了`,
+                  content: `你把 ${dayLabel(reading.at)} 那篇日记给${displayName(contact)}看了`,
                   at: Date.now(),
                 };
                 await saveMsgs([ev]);
@@ -281,7 +279,7 @@ export function DiaryApp({
             </button>
           ) : (
             <p className="text-center text-[11px] py-2" style={{ color: "var(--ink-faint)" }}>
-              这一篇它读得到
+              {reading.secret ? "这一篇它没给你看" : "这一篇它读得到"}
             </p>
           )}
           {note && (
@@ -328,9 +326,14 @@ export function DiaryApp({
           </div>
         )}
 
-        {rows.map((e) => (
+        {rows.map((e) => {
+          // 它写的、还没给你看的那页——**列表里就打不开**，
+          // 不是打开之后才拦。锁着的东西被点开一半是最假的。
+          const sealed = e.author === "them" && e.secret;
+          return (
           <button
             key={e.id}
+            disabled={sealed}
             onClick={() => {
               setNote(null);
               setReading(e);
@@ -350,10 +353,11 @@ export function DiaryApp({
               {e.secret && <Lock />}
             </span>
             <span className="block text-[16px] line-clamp-2" style={{ ...hand, lineHeight: "26px" }}>
-              {e.text}
+              {sealed ? "……" : e.text}
             </span>
           </button>
-        ))}
+          );
+        })}
       </div>
 
       <div className="shrink-0 px-4 pb-2 flex gap-2">
@@ -374,9 +378,11 @@ export function DiaryApp({
               const recent = await loadMsgs(contact.id);
               const text = await askForDiary(settings, contact, recent);
               if (!text) throw new Error("它没写出东西");
-              // 它写的默认是私密的——**它也该有不给你看的一页**。
-              // 要不要给你看，由它那边的"公开"决定；现在只能你替它翻开。
-              await saveEntry({ ...blankEntry(contact.id, "them"), text, secret: true, paperTint: "sand" });
+              // 默认可见。
+              // ⚠️ 「它也有一页锁着不给你看」是个更狠的设计，Cleo 还没拍板
+              //（见 docs/ROADMAP.md 的待定），所以**不默认打开**。
+              // 下面读页面里的锁态渲染已经写好了，她点头就只改这一行。
+              await saveEntry({ ...blankEntry(contact.id, "them"), text, secret: false, paperTint: "sand" });
               await refresh(contact.id);
             } catch (err) {
               setNote(err instanceof Error ? err.message : String(err));
