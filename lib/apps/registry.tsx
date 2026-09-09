@@ -10,6 +10,9 @@ export type AppDef = {
   tint: string;
   dock?: boolean;
   ready?: boolean;
+  /// app 自己画标题栏。聊天要在标题的位置放返回键和对方的头像，
+  /// 用不了统一那条「大标题 = app 名」。
+  ownHeader?: boolean;
 };
 
 const s = {
@@ -33,6 +36,7 @@ export const APPS: AppDef[] = [
     tint: "oklch(0.72 0.15 250)",
     dock: true,
     ready: true,
+    ownHeader: true,
     icon: <Icon><path d="M20 12a8 8 0 1 1-3.2-6.4" /><path d="M21 4v5h-5" /><path d="M8.5 11.5h.01M12 11.5h.01M15.5 11.5h.01" /></Icon>,
   },
   {
@@ -85,6 +89,7 @@ export const APPS: AppDef[] = [
     id: "contacts",
     name: "通讯录",
     tint: "oklch(0.73 0.11 200)",
+    ready: true,
     icon: <Icon><rect x="5" y="3" width="14" height="18" rx="2.5" /><path d="M3 8h2M3 12h2M3 16h2" /><circle cx="12" cy="10" r="2.2" /><path d="M8.6 16.5a3.6 3.6 0 0 1 6.8 0" /></Icon>,
   },
   {

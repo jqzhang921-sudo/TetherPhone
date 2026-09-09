@@ -58,11 +58,13 @@ export function AppWindow({
       }}
     >
       <StatusBar />
-      <header className="px-5 pt-1 pb-3 shrink-0">
-        <h1 className="text-[26px] font-semibold" style={{ color: "var(--ink)" }}>
-          {app.name}
-        </h1>
-      </header>
+      {!app.ownHeader && (
+        <header className="px-5 pt-1 pb-3 shrink-0">
+          <h1 className="text-[26px] font-semibold" style={{ color: "var(--ink)" }}>
+            {app.name}
+          </h1>
+        </header>
+      )}
 
       <div className="flex-1 min-h-0 flex flex-col">{children}</div>
 

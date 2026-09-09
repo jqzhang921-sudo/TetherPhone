@@ -1,33 +1,24 @@
 "use client";
+import { getAllBy, putMany, put, clearStore } from "@/lib/db/idb";
 
 export type Role = "user" | "assistant";
 
+/// 每条消息都带 contactId —— 换联系人就是换一整段对话。
 export type Msg = {
   id: string;
+  contactId: string;
   role: Role;
   content: string;
   at: number;
 };
 
-const KEY = "tether.chat.v1";
-
-export function loadMsgs(): Msg[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as Msg[]) : [];
-  } catch {
-    return [];
-  }
+export async function loadMsgs(contactId: string): Promise<Msg[]> {
+  const rows = await getAllBy<Msg>("messages", contactId);
+  return rows.sort((a, b) => a.at - b.at);
 }
 
-export function saveMsgs(msgs: Msg[]) {
-  try {
-    window.localStorage.setItem(KEY, JSON.stringify(msgs));
-  } catch {
-    /* 存不下就只活在这次会话里，不该让聊天本身失灵 */
-  }
-}
+export const saveMsg = (m: Msg) => put("messages", m);
+export const saveMsgs = (ms: Msg[]) => putMany("messages", ms);
+export const clearAllMsgs = () => clearStore("messages");
 
-export const newId = () =>
-  `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+export { newId } from "@/lib/id";

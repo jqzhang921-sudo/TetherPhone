@@ -1,0 +1,221 @@
+"use client";
+import { useEffect, useState } from "react";
+import { displayName, type Contact } from "@/lib/os/contacts";
+
+const TINTS = [
+  "oklch(0.72 0.15 250)",
+  "oklch(0.74 0.15 30)",
+  "oklch(0.76 0.13 150)",
+  "oklch(0.72 0.13 300)",
+  "oklch(0.75 0.12 85)",
+  "oklch(0.73 0.11 200)",
+];
+
+const EMOJI = ["🌙", "🌱", "🐚", "🕯", "🫧", "🍃", "🐈", "🪞", "☁️", "🧊"];
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="text-[12px]" style={{ color: "var(--ink-faint)" }}>
+        {label}
+      </span>
+      <div className="mt-1.5">{children}</div>
+    </label>
+  );
+}
+
+const inputStyle: React.CSSProperties = {
+  background: "color-mix(in oklab, var(--glass-tint) 88%, transparent)",
+  border: "1px solid var(--glass-edge)",
+  color: "var(--ink)",
+};
+
+/// 联系人资料 = 编辑器。刻意只有一份：从聊天页点头像进来的和从通讯录点进来的
+/// 是同一个东西，不做「只读版 + 编辑版」两套——那种设计每加一个字段要改两处，
+/// 迟早会分叉。
+export function ContactSheet({
+  contact,
+  onSave,
+  onDelete,
+  onClose,
+  canDelete,
+}: {
+  contact: Contact;
+  onSave: (c: Contact) => void;
+  onDelete: (id: string) => void;
+  onClose: () => void;
+  canDelete: boolean;
+}) {
+  const [draft, setDraft] = useState(contact);
+  const [entered, setEntered] = useState(false);
+
+  useEffect(() => setDraft(contact), [contact]);
+  useEffect(() => {
+    const r = requestAnimationFrame(() => setEntered(true));
+    return () => cancelAnimationFrame(r);
+  }, []);
+
+  const set = (p: Partial<Contact>) => setDraft((d) => ({ ...d, ...p }));
+
+  const close = () => {
+    // 改完直接存，不做「保存/取消」——手机上退出去发现没保存是最恼人的一件事。
+    onSave(draft);
+    onClose();
+  };
+
+  return (
+    <div className="absolute inset-0 z-10 flex flex-col justify-end">
+      <button
+        aria-label="关闭"
+        onClick={close}
+        className="absolute inset-0"
+        style={{
+          background: "oklch(0 0 0 / 0.4)",
+          opacity: entered ? 1 : 0,
+          transition: "opacity 260ms var(--ease-ios)",
+        }}
+      />
+
+      <div
+        className="glass-strong relative rounded-t-[28px] max-h-[88%] flex flex-col"
+        style={{
+          transform: entered ? "none" : "translateY(100%)",
+          transition: "transform 340ms var(--ease-ios)",
+        }}
+      >
+        <div className="shrink-0 pt-2.5 pb-1 flex justify-center">
+          <span className="w-9 h-1 rounded-full" style={{ background: "var(--ink)", opacity: 0.25 }} />
+        </div>
+
+        <div className="overflow-y-auto no-bar px-5 pb-6 flex flex-col gap-4">
+          <div className="flex flex-col items-center gap-2 pt-1">
+            <span
+              className="grid place-items-center rounded-full w-[72px] h-[72px] text-[36px]"
+              style={{ background: draft.tint }}
+            >
+              {draft.emoji}
+            </span>
+            <span className="text-[17px] font-medium" style={{ color: "var(--ink)" }}>
+              {displayName(draft)}
+            </span>
+            <span className="text-[12px] tabular-nums" style={{ color: "var(--ink-faint)" }}>
+              {draft.phone}
+            </span>
+          </div>
+
+          <Row label="头像">
+            <div className="flex flex-wrap gap-2">
+              {EMOJI.map((e) => (
+                <button
+                  key={e}
+                  onClick={() => set({ emoji: e })}
+                  className="w-9 h-9 rounded-full grid place-items-center text-[18px]"
+                  style={{
+                    background: "color-mix(in oklab, var(--glass-tint) 70%, transparent)",
+                    outline: draft.emoji === e ? "2px solid var(--ink)" : "none",
+                  }}
+                >
+                  {e}
+                </button>
+              ))}
+            </div>
+          </Row>
+
+          <Row label="底色">
+            <div className="flex gap-2.5">
+              {TINTS.map((t) => (
+                <button
+                  key={t}
+                  onClick={() => set({ tint: t, bubble: t })}
+                  className="w-8 h-8 rounded-full"
+                  style={{
+                    background: t,
+                    outline: draft.tint === t ? "2px solid var(--ink)" : "none",
+                    outlineOffset: 2,
+                  }}
+                />
+              ))}
+            </div>
+          </Row>
+
+          <Row label="它叫">
+            <input
+              value={draft.name}
+              onChange={(e) => set({ name: e.target.value })}
+              placeholder="还没起名"
+              className="w-full rounded-2xl px-3.5 py-2.5 text-[14px] outline-none"
+              style={inputStyle}
+            />
+          </Row>
+
+          <Row label="备注">
+            <input
+              value={draft.note}
+              onChange={(e) => set({ note: e.target.value })}
+              placeholder="你怎么叫它。填了就显示这个"
+              className="w-full rounded-2xl px-3.5 py-2.5 text-[14px] outline-none"
+              style={inputStyle}
+            />
+          </Row>
+
+          <Row label="个性签名">
+            <input
+              value={draft.signature}
+              onChange={(e) => set({ signature: e.target.value })}
+              placeholder="它挂在主页上的一句话"
+              className="w-full rounded-2xl px-3.5 py-2.5 text-[14px] outline-none"
+              style={inputStyle}
+            />
+          </Row>
+
+          <Row label="人设">
+            <textarea
+              value={draft.persona}
+              onChange={(e) => set({ persona: e.target.value })}
+              rows={5}
+              placeholder="留空也能聊。"
+              className="w-full rounded-2xl px-3.5 py-2.5 text-[14px] outline-none resize-none leading-relaxed"
+              style={inputStyle}
+            />
+            <span className="block mt-1.5 text-[11px] leading-relaxed" style={{ color: "var(--ink-faint)" }}>
+              写它是谁、在意什么、怎么说话。别写「贴心的助手」这类标签——
+              挂了形容词，模型就去演那个词。
+            </span>
+          </Row>
+
+          <Row label="模型">
+            <input
+              value={draft.model}
+              onChange={(e) => set({ model: e.target.value })}
+              placeholder="留空 = 用设置里的默认"
+              className="w-full rounded-2xl px-3.5 py-2.5 text-[14px] outline-none"
+              style={inputStyle}
+            />
+          </Row>
+
+          {canDelete && (
+            <button
+              onClick={() => {
+                if (!window.confirm(`删掉「${displayName(draft)}」？和它的聊天记录一起没。`)) return;
+                onDelete(draft.id);
+                onClose();
+              }}
+              className="text-left text-[14px] py-1"
+              style={{ color: "oklch(0.62 0.19 25)" }}
+            >
+              删除这个联系人
+            </button>
+          )}
+
+          <button
+            onClick={close}
+            className="mt-1 w-full rounded-2xl py-3 text-[15px]"
+            style={{ background: draft.tint, color: "oklch(0.99 0 0)" }}
+          >
+            完成
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,13 +1,25 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { WALLPAPERS } from "@/lib/os/wallpapers";
 import type { Settings } from "@/lib/os/settings";
+import { exportBackup, importBackup } from "@/lib/os/backup";
+import { clearAllMsgs } from "@/lib/chat/store";
+
+const inputStyle: React.CSSProperties = {
+  background: "color-mix(in oklab, var(--glass-tint) 88%, transparent)",
+  border: "1px solid var(--glass-edge)",
+  color: "var(--ink)",
+};
 
 function Field({
   label, value, onChange, placeholder, type = "text", hint,
 }: {
-  label: string; value: string; onChange: (v: string) => void;
-  placeholder?: string; type?: string; hint?: string;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  type?: string;
+  hint?: string;
 }) {
   return (
     <label className="block">
@@ -18,11 +30,7 @@ function Field({
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
         className="mt-1.5 w-full rounded-2xl px-3.5 py-2.5 text-[14px] outline-none"
-        style={{
-          background: "color-mix(in oklab, var(--glass-tint) 88%, transparent)",
-          border: "1px solid var(--glass-edge)",
-          color: "var(--ink)",
-        }}
+        style={inputStyle}
       />
       {hint && (
         <span className="block mt-1.5 text-[11px] leading-relaxed" style={{ color: "var(--ink-faint)" }}>
@@ -43,12 +51,16 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
 }
 
 export function SettingsApp({
-  settings, onChange,
+  settings,
+  onChange,
+  onReloadAll,
 }: {
   settings: Settings;
   onChange: (patch: Partial<Settings>) => void;
+  onReloadAll: () => void;
 }) {
-  const [wiped, setWiped] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto no-bar px-4 pb-6">
@@ -69,35 +81,28 @@ export function SettingsApp({
           hint="只存在这台设备的浏览器里，不上传。调模型时经本站服务端中转——浏览器直连大多数接口会被 CORS 挡住。"
         />
         <Field
-          label="模型"
+          label="默认模型"
           value={settings.model}
           onChange={(v) => onChange({ model: v })}
           placeholder="deepseek-chat"
+          hint="每个联系人可以单独覆盖，在通讯录里改。"
         />
       </Group>
 
-      <Group title="名字">
-        <Field label="它叫" value={settings.aiName} onChange={(v) => onChange({ aiName: v })} placeholder="还没起名" />
-        <Field label="你叫" value={settings.userName} onChange={(v) => onChange({ userName: v })} placeholder="它该怎么称呼你" />
-        <label className="block">
-          <span className="text-[12px]" style={{ color: "var(--ink-faint)" }}>人设</span>
-          <textarea
-            value={settings.persona}
-            onChange={(e) => onChange({ persona: e.target.value })}
-            rows={5}
-            placeholder="留空也能聊。"
-            className="mt-1.5 w-full rounded-2xl px-3.5 py-2.5 text-[14px] outline-none resize-none leading-relaxed"
-            style={{
-              background: "color-mix(in oklab, var(--glass-tint) 88%, transparent)",
-              border: "1px solid var(--glass-edge)",
-              color: "var(--ink)",
-            }}
-          />
-          <span className="block mt-1.5 text-[11px] leading-relaxed" style={{ color: "var(--ink-faint)" }}>
-            写它是谁、在意什么、怎么说话。别写「贴心的助手」这类标签——
-            挂了形容词，模型就去演那个词。
-          </span>
-        </label>
+      {/* 名字和人设不在这儿了——它们归联系人管，在通讯录里改。 */}
+      <Group title="你自己">
+        <Field
+          label="你叫"
+          value={settings.userName}
+          onChange={(v) => onChange({ userName: v })}
+          placeholder="它该怎么称呼你"
+        />
+        <Field
+          label="你的签名"
+          value={settings.userSignature}
+          onChange={(v) => onChange({ userSignature: v })}
+          placeholder="挂在你主页上的一句话"
+        />
       </Group>
 
       <Group title="壁纸">
@@ -127,25 +132,73 @@ export function SettingsApp({
         </div>
       </Group>
 
+      <Group title="备份">
+        <p className="text-[11px] leading-relaxed" style={{ color: "var(--ink-faint)" }}>
+          所有东西都只存在这台设备上。
+          <b style={{ color: "var(--ink-dim)" }}>iPhone 上，Safari 会把七天没打开过的网站数据清掉</b>
+          ——把这个页面「添加到主屏幕」就不受这条限制。不管加没加，定期导出一份都不亏。
+        </p>
+        <button
+          onClick={() => void exportBackup()}
+          className="text-left text-[14px] py-1"
+          style={{ color: "var(--ink)" }}
+        >
+          导出备份文件
+        </button>
+        <button
+          onClick={() => fileRef.current?.click()}
+          className="text-left text-[14px] py-1"
+          style={{ color: "var(--ink)" }}
+        >
+          从备份恢复
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          onChange={async (e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (!f) return;
+            // 恢复是整机覆盖不是合并——合并要处理同 id 不同内容、时间线交叉、
+            // 联系人重名，那是另一件事，现在做只会做出一堆看不见的冲突。
+            if (!window.confirm("恢复会覆盖这台设备上现有的全部数据，继续？")) return;
+            const r = await importBackup(f);
+            if (!r.ok) {
+              setNote(r.why);
+              return;
+            }
+            const n = Object.entries(r.counts)
+              .filter(([, v]) => v > 0)
+              .map(([k, v]) => `${k} ${v}`)
+              .join(" · ");
+            setNote(`已恢复：${n || "空备份"}`);
+            onReloadAll();
+          }}
+        />
+      </Group>
+
       <Group title="数据">
         <button
-          onClick={() => {
-            // 聊天记录只在这台浏览器里，删了没有别的副本。
-            if (!window.confirm("清空聊天记录？删了找不回来。")) return;
-            window.localStorage.removeItem("tether.chat.v1");
-            setWiped(true);
+          onClick={async () => {
+            if (!window.confirm("清空所有聊天记录？删了找不回来。")) return;
+            await clearAllMsgs();
+            setNote("聊天记录已清空。");
+            onReloadAll();
           }}
           className="text-left text-[14px] py-1"
           style={{ color: "oklch(0.62 0.19 25)" }}
         >
           清空聊天记录
         </button>
-        {wiped && (
-          <span className="text-[11px]" style={{ color: "var(--ink-faint)" }}>
-            已清空。回桌面重新打开聊天就看得到。
-          </span>
-        )}
       </Group>
+
+      {note && (
+        <p className="text-[12px] text-center pb-2" style={{ color: "var(--ink-dim)" }}>
+          {note}
+        </p>
+      )}
     </div>
   );
 }
