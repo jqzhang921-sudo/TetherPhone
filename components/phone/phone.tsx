@@ -4,6 +4,7 @@ import { LockScreen } from "./lock-screen";
 import { HomeScreen } from "./home-screen";
 import { AppWindow } from "./app-window";
 import { ContactSheet } from "./contact-sheet";
+import { ProfilePage } from "./profile-page";
 import { ChatApp } from "@/components/apps/chat-app";
 import { ContactsApp } from "@/components/apps/contacts-app";
 import { DiaryApp } from "@/components/apps/diary-app";
@@ -33,7 +34,7 @@ import {
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from "@/lib/os/settings";
 import { loadLetters, unreadCount } from "@/lib/letters/store";
 import { ThemeApp } from "@/components/apps/theme-app";
-import { clearChatBg } from "@/lib/os/chat-bg";
+import { clearContactImage } from "@/lib/os/contact-image";
 
 type Open = { id: string; origin: { x: number; y: number } };
 
@@ -46,6 +47,8 @@ export function Phone() {
   const [open, setOpen] = useState<Open | null>(null);
   const [closing, setClosing] = useState(false);
   const [sheet, setSheet] = useState<Contact | null>(null);
+  /// 主页是「看」，资料卡是「改」。两层分开——从主页点编辑才叠资料卡上去。
+  const [profile, setProfile] = useState<Contact | null>(null);
   const [badges, setBadges] = useState<Record<string, number>>({});
   const device = useRef<HTMLDivElement>(null);
   /// 计时回调要拿到最新的联系人和「在和谁听」，但又不能把它们塞进依赖里
@@ -62,10 +65,14 @@ export function Phone() {
   // iOS 加到主屏幕后没有系统返回键，所以 home 条不能撤，它才是那边唯一的出口。
   const depth = useRef(0);
   const sheetRef = useRef<Contact | null>(null);
+  const profileRef = useRef<Contact | null>(null);
   const openRef = useRef<Open | null>(null);
   useEffect(() => {
     sheetRef.current = sheet;
   }, [sheet]);
+  useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
   useEffect(() => {
     openRef.current = open;
   }, [open]);
@@ -113,8 +120,10 @@ export function Phone() {
   };
 
   const removeContact = async (id: string) => {
-    // 背景图存在 photos 表里、以联系人 id 命名，人没了它就是个孤儿
-    await clearChatBg(id);
+    // 挂在这个人身上的大图都存在 photos 表里、以联系人 id 命名，
+    // 人没了它们就是孤儿。⚠️ **新加一种图要记得加到这儿**——
+    // 漏了不会报错，只会在库里悄悄攒垃圾。
+    await Promise.all([clearContactImage("chatbg", id), clearContactImage("banner", id)]);
     await deleteContact(id);
     setContacts(await loadContacts());
   };
@@ -232,8 +241,14 @@ export function Phone() {
     const onPop = () => {
       if (depth.current > 0) depth.current--;
       // 从最上面一层往下关
+      // ⚠️ 顺序就是叠放顺序：资料卡叠在主页上面，主页叠在 app 上面。
+      // 关错顺序的症状是按一次返回，底下那层先没了、上面那层还杵着。
       if (sheetRef.current) {
         setSheet(null);
+        return;
+      }
+      if (profileRef.current) {
+        setProfile(null);
         return;
       }
       if (openRef.current) doCloseApp();
@@ -254,8 +269,21 @@ export function Phone() {
     else setSheet(null);
   };
 
+  /// 收掉最上面那一层。走 history.back()，由 popstate 决定关的是谁——
+  /// **别在这里自己判断关哪层**，那就变成两套顺序，迟早不一致。
+  const closeLayer = () => {
+    if (depth.current > 0) history.back();
+    else if (sheet) setSheet(null);
+    else setProfile(null);
+  };
+
   const showSheet = (c: Contact) => {
     setSheet(c);
+    pushLayer();
+  };
+
+  const showProfile = (c: Contact) => {
+    setProfile(c);
     pushLayer();
   };
 
@@ -304,9 +332,9 @@ export function Phone() {
       {open && app && (
         <AppWindow app={app} origin={open.origin} closing={closing} onClose={closeApp}>
           {app.id === "chat" ? (
-            <ChatApp contacts={contacts} settings={settings} onOpenProfile={showSheet} />
+            <ChatApp contacts={contacts} settings={settings} onOpenProfile={showProfile} />
           ) : app.id === "contacts" ? (
-            <ContactsApp contacts={contacts} onOpen={showSheet} onAdd={() => void addContact()} />
+            <ContactsApp contacts={contacts} onOpen={showProfile} onAdd={() => void addContact()} />
           ) : app.id === "diary" ? (
             <DiaryApp contacts={contacts} settings={settings} />
           ) : app.id === "letters" ? (
@@ -351,7 +379,28 @@ export function Phone() {
         </AppWindow>
       )}
 
-      {/* 资料卡浮在最上层：聊天里点头像和通讯录里点条目进的是同一个 */}
+      {/* 主页：聊天里点头像、通讯录里点条目，进的都是这儿 */}
+      {profile && (
+        <ProfilePage
+          contact={contacts.find((c) => c.id === profile.id) ?? profile}
+          onEdit={() => showSheet(profile)}
+          onChat={() => {
+            // 先收主页再开聊天：反过来的话新窗口被压在主页底下，
+            // 看着像"点了没反应"。back() 是异步的，等一帧再开。
+            closeLayer();
+            // openApp 收的是**视口坐标**（它自己再减设备框原点），
+            // 传框内坐标会被减两次，窗口从屏幕外面长出来
+            const box = device.current?.getBoundingClientRect();
+            const c = box
+              ? { x: box.left + box.width / 2, y: box.top + box.height / 2 }
+              : { x: 0, y: 0 };
+            window.setTimeout(() => openApp("chat", c), 60);
+          }}
+          onClose={closeLayer}
+        />
+      )}
+
+      {/* 资料卡叠在主页上面：主页是看，这个是改 */}
       {sheet && (
         <ContactSheet
           contact={sheet}

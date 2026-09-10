@@ -1,36 +1,17 @@
 "use client";
 import { useEffect, useState } from "react";
-import { get, put, remove } from "@/lib/db/idb";
-import { PHONE_SCOPE, type Photo } from "@/lib/photos/store";
+import { clearContactImage, readContactImage, saveContactImage } from "./contact-image";
 import { readImage } from "@/lib/music/tone";
 
 /// 聊天背景。**每个联系人一张**——「每段关系不一样」是这个 App 的地基，
 /// 背景是最能体现这件事的地方之一。全局默认等真有人要了再说。
 ///
-/// ⚠️ 和头像一样，存的是**图本身**，不是相册里那张的 id：
-/// 把原图从相册删掉，聊天背景不该跟着变空白。见 lib/os/avatar.ts。
-///
-/// 但和头像不一样的是它**很大**（铺满一屏），所以不能挂在 Contact 记录上——
-/// contacts 表每次 getAll 都会把整张图读出来，而联系人在启动时就要全部加载。
-/// 图放 photos 表里一条固定 id 的记录，Contact 上只留一个时间戳。
-const idOf = (contactId: string) => `__chatbg_${contactId}`;
+/// 存取走 contact-image（和主页横幅同一套：图进 photos 表，Contact 上只留时间戳）。
+/// 这里只管聊天背景特有的两件事：**深浅**和**玻璃下限**。
+export const saveChatBg = (contactId: string, blob: Blob, w: number, h: number) =>
+  saveContactImage("chatbg", contactId, blob, w, h);
 
-export async function saveChatBg(contactId: string, blob: Blob, w: number, h: number) {
-  const row: Photo = {
-    id: idOf(contactId),
-    contactId: PHONE_SCOPE,
-    blob,
-    w,
-    h,
-    from: "me",
-    // saved:false → 不会出现在任何相册里。它属于这台手机，不是一张"收着的图"。
-    saved: false,
-    at: Date.now(),
-  };
-  await put("photos", row);
-}
-
-export const clearChatBg = (contactId: string) => remove("photos", idOf(contactId));
+export const clearChatBg = (contactId: string) => clearContactImage("chatbg", contactId);
 
 export type ChatSkin = {
   url: string;
@@ -57,7 +38,7 @@ export function useChatSkin(contactId: string, at: number | undefined, aspect: n
     let url: string | null = null;
     let alive = true;
     void (async () => {
-      const row = await get<Photo>("photos", idOf(contactId));
+      const row = await readContactImage("chatbg", contactId);
       if (!row?.blob || !alive) return;
       url = URL.createObjectURL(row.blob);
       // 深浅从图里算，不让人选——选错了整页字就没法看，换一张还得再选一次

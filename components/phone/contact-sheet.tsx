@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { displayName, type Contact } from "@/lib/os/contacts";
 import { cropSquare, faceOf } from "@/lib/os/avatar";
 import { saveChatBg, clearChatBg } from "@/lib/os/chat-bg";
+import { saveContactImage, clearContactImage } from "@/lib/os/contact-image";
 import { shrink } from "@/lib/photos/store";
 import { PhotoPicker } from "@/components/photos/photo-picker";
 import { Avatar } from "./avatar";
@@ -53,7 +54,7 @@ export function ContactSheet({
   const [draft, setDraft] = useState(contact);
   /// 挑图面板现在两个地方用：头像和聊天背景。存一个"挑给谁"而不是两个布尔，
   /// 免得两个都为 true 的状态存在。
-  const [picking, setPicking] = useState<"face" | "bg" | null>(null);
+  const [picking, setPicking] = useState<"face" | "bg" | "banner" | null>(null);
   const [entered, setEntered] = useState(false);
 
   useEffect(() => setDraft(contact), [contact]);
@@ -211,6 +212,53 @@ export function ContactSheet({
             </p>
           </Row>
 
+          <Row label="主页横幅">
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPicking("banner")}
+                className="flex-1 rounded-xl py-2 text-[12px]"
+                style={{ background: "color-mix(in oklab, var(--glass-tint) 70%, transparent)", color: "var(--ink)" }}
+              >
+                从相册选
+              </button>
+              <label
+                className="flex-1 rounded-xl py-2 text-[12px] text-center cursor-pointer"
+                style={{ background: "color-mix(in oklab, var(--glass-tint) 70%, transparent)", color: "var(--ink)" }}
+              >
+                自己传
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!f) return;
+                    // 横幅只占屏幕上面一条，不用壁纸那么大
+                    const { blob, w, h } = await shrink(f, 1200, 0.86);
+                    await saveContactImage("banner", draft.id, blob, w, h);
+                    set({ bannerAt: Date.now() });
+                  }}
+                />
+              </label>
+              {draft.bannerAt && (
+                <button
+                  onClick={async () => {
+                    await clearContactImage("banner", draft.id);
+                    set({ bannerAt: undefined });
+                  }}
+                  className="rounded-xl px-3 text-[12px]"
+                  style={{ background: "color-mix(in oklab, var(--glass-tint) 70%, transparent)", color: "var(--ink-faint)" }}
+                >
+                  去掉
+                </button>
+              )}
+            </div>
+            <p className="text-[11px] leading-relaxed pt-2" style={{ color: "var(--ink-faint)" }}>
+              主页最上面那条。<b style={{ color: "var(--ink-dim)" }}>不是头像放大</b>，是另一张图。
+            </p>
+          </Row>
+
           <Row label="底色">
             <div className="flex gap-2.5">
               {TINTS.map((t) => (
@@ -315,6 +363,9 @@ export function ContactSheet({
           onPick={async (ph) => {
             if (picking === "face") {
               set({ avatar: await cropSquare(ph.blob) });
+            } else if (picking === "banner") {
+              await saveContactImage("banner", draft.id, ph.blob, ph.w, ph.h);
+              set({ bannerAt: Date.now() });
             } else {
               await saveChatBg(draft.id, ph.blob, ph.w, ph.h);
               set({ chatBgAt: Date.now() });
