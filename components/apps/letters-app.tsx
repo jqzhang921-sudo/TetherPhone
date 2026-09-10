@@ -18,6 +18,7 @@ import { PhotoImg } from "@/components/photos/photo-img";
 import { PhotoPicker } from "@/components/photos/photo-picker";
 import { loadMsgs } from "@/lib/chat/store";
 import { displayName, type Contact } from "@/lib/os/contacts";
+import { hashOf } from "@/lib/id";
 import type { Settings } from "@/lib/os/settings";
 
 /// 信封。封着的时候看得到封口那道 V 和一点封蜡；拆开之后露出里面的纸。
@@ -219,7 +220,7 @@ export function LettersApp({
                       style={{
                         border: "3px solid oklch(0.99 0 0)",
                         boxShadow: "0 2px 8px oklch(0 0 0 / 0.2)",
-                        transform: `rotate(${(id.charCodeAt(0) % 7) - 3}deg)`,
+                        transform: `rotate(${(hashOf(id) % 7) - 3}deg)`,
                       }}
                     />
                   ))}
@@ -343,7 +344,7 @@ export function LettersApp({
                     style={{
                       border: "5px solid oklch(0.99 0 0)",
                       boxShadow: "0 3px 12px oklch(0 0 0 / 0.22)",
-                      transform: `rotate(${(id.charCodeAt(0) % 7) - 3}deg)`,
+                      transform: `rotate(${(hashOf(id) % 7) - 3}deg)`,
                     }}
                   />
                 ))}

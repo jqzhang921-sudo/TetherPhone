@@ -15,6 +15,7 @@ import {
 } from "@/lib/photos/store";
 import { TOOLS, lockedPages, runTool, toolRules } from "@/lib/tools";
 import { digest, loadMemory, type MemoryTopic } from "@/lib/memory/store";
+import { boardText, loadNotes, type Note } from "@/lib/notes/store";
 import { PhotoImg } from "@/components/photos/photo-img";
 import { PhotoViewer } from "@/components/photos/photo-viewer";
 import { useBlobUrl } from "@/lib/use-blob-url";
@@ -35,6 +36,7 @@ function systemPrompt(
   shared: DiaryEntry[],
   locked: string,
   mem: MemoryTopic[],
+  notes: Note[],
 ) {
   const bits: string[] = [];
   if (c.name.trim()) bits.push(`你叫${c.name.trim()}。`);
@@ -62,6 +64,11 @@ function systemPrompt(
   // 越靠前越稳定，KV 缓存才吃得住。
   const d = digest(mem);
   if (d) bits.push(d);
+
+  // 板是公用的，它该知道上面有什么。**但知道 ≠ 该开口提**——
+  // 复述她自己写的待办就是催，那条规矩在 toolRules 里。
+  const board = boardText(notes);
+  if (board) bits.push(board);
 
   bits.push(toolRules);
   // 它锁着的那几页。不给它看的话，它根本不知道有东西可开。
@@ -115,6 +122,7 @@ export function ChatApp({
   const [diary, setDiary] = useState<DiaryEntry[]>([]);
   const [photos, setPhotos] = useState<Record<string, Photo>>({});
   const [memory, setMemory] = useState<MemoryTopic[]>([]);
+  const [notes, setNotes] = useState<Note[]>([]);
   const [pending, setPending] = useState<{ blob: Blob; w: number; h: number }[]>([]);
   const [viewing, setViewing] = useState<Photo | null>(null);
   const [text, setText] = useState("");
@@ -154,6 +162,7 @@ export function ChatApp({
     void loadMsgs(openId).then((rows) => alive && setMsgs(rows));
     void loadDiary(openId).then((rows) => alive && setDiary(rows));
     void loadMemory(openId).then((rows) => alive && setMemory(rows));
+    void loadNotes(openId).then((rows) => alive && setNotes(rows));
     void refreshPhotos(openId);
     return () => {
       alive = false;
@@ -242,6 +251,7 @@ export function ChatApp({
         diary,
         await lockedPages(contact.id),
         memory,
+        notes,
       );
       const replyId = newId();
       let visible = "";
@@ -334,6 +344,7 @@ export function ChatApp({
             refresh: async () => {
               setDiary(await loadDiary(contact.id));
               setMemory(await loadMemory(contact.id));
+              setNotes(await loadNotes(contact.id));
             },
           });
           // 结果原样回给它。**失败也要说清楚**——静默失败会让它以为成功了。
@@ -354,7 +365,7 @@ export function ChatApp({
     } finally {
       setBusy(false);
     }
-  }, [text, pending, busy, contact, msgs, settings, diary, memory, photos, refreshPhotos]);
+  }, [text, pending, busy, contact, msgs, settings, diary, memory, notes, photos, refreshPhotos]);
 
   // ── 会话列表 ────────────────────────────────────────────────
   if (!contact) {

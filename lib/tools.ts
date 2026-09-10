@@ -11,6 +11,7 @@ import {
   saveTopic,
   type Kind,
 } from "@/lib/memory/store";
+import { blankNote, loadNotes, saveNote } from "@/lib/notes/store";
 import { newId, saveMsgs, type Msg } from "@/lib/chat/store";
 import { displayName, type Contact } from "@/lib/os/contacts";
 
@@ -104,6 +105,32 @@ export const TOOLS = [
   {
     type: "function",
     function: {
+      name: "add_note",
+      description:
+        "往备忘录那块板上贴一条。板是你们俩共用的，她也看得见、也能勾掉。" +
+        "适合『要记得去做』的事，不适合『关于她是谁』——那种用 remember。",
+      parameters: {
+        type: "object",
+        properties: { text: { type: "string", description: "一句话，别写成一段" } },
+        required: ["text"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "check_note",
+      description: "把板上某一条勾掉（做完了）。勾掉的会灰着留一周，她能撤。",
+      parameters: {
+        type: "object",
+        properties: { text: { type: "string", description: "那条的内容，写个能认出来的片段就行" } },
+        required: ["text"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "forget",
       description: "删掉一个话题。删了就没了，她也看得到少了一条。",
       parameters: {
@@ -125,6 +152,10 @@ export const toolRules = [
   "她不喜欢被怎么对待。某天说过的某一句话不该单独立成话题——那是细节，加进已有的话题里。",
   "摘要是那一行钩子：写清这个话题是关于什么，别拿细节的开头凑。",
   "记满了会被拒绝并列出现有的。那时候是去改一条，不是硬塞。",
+  "",
+  "备忘录那块板你也能写（add_note）。但**板上有什么 ≠ 该开口提**——",
+  "复述她自己写的待办就是催。同一件事最多提一次，而且要带来新东西",
+  "（「你说的那个快递，驿站六点关门」是带来；「你那个快递还没去拿吧」说第二遍就变味了）。",
 ].join("\n");
 
 /// 把它锁着的日记列给它看。**给全文**——那是它自己写的东西，
@@ -253,6 +284,28 @@ export async function runTool(
     await deleteTopic(hit.id);
     await ctx.refresh();
     return `忘了：${topic}。`;
+  }
+
+  // ── 备忘录 ────────────────────────────────────────────────
+  if (name === "add_note") {
+    const text = String(args.text ?? "").trim();
+    if (!text) return "内容不能空。";
+    await saveNote(blankNote(ctx.contact.id, "them", text));
+    await ctx.refresh();
+    return `贴上去了：${text}`;
+  }
+
+  if (name === "check_note") {
+    const frag = String(args.text ?? "").trim();
+    const rows = await loadNotes(ctx.contact.id);
+    const open = rows.filter((n) => !n.done);
+    const hit = open.find((n) => n.text.includes(frag) || frag.includes(n.text));
+    if (!hit) {
+      return `板上没找到「${frag}」。现在没勾的是：${open.map((n) => n.text).join("、") || "空的"}。`;
+    }
+    await saveNote({ ...hit, done: true, doneAt: Date.now() });
+    await ctx.refresh();
+    return `勾掉了：${hit.text}`;
   }
 
   return `没有叫 ${name} 的工具。`;

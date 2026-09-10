@@ -103,6 +103,7 @@ export const APPS: AppDef[] = [
     id: "notes",
     name: "备忘录",
     tint: "oklch(0.80 0.12 95)",
+    ready: true,
     icon: <Icon><path d="M6 3h9l4 4v14H6z" /><path d="M15 3v4h4" /><path d="M9 12h6M9 16h4" /></Icon>,
   },
   {

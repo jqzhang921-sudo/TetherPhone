@@ -19,6 +19,7 @@ import { PhotoImg } from "@/components/photos/photo-img";
 import { PhotoPicker } from "@/components/photos/photo-picker";
 import { loadMsgs, newId, saveMsgs, type Msg } from "@/lib/chat/store";
 import { displayName, type Contact } from "@/lib/os/contacts";
+import { hashOf } from "@/lib/id";
 import type { Settings } from "@/lib/os/settings";
 
 /// 一次性把整条流读完。日记不需要逐字出现——它是「写好了拿给你看」，
@@ -174,7 +175,7 @@ export function DiaryApp({
                       photo={photos[id]}
                       className="w-16 h-16 rounded-sm object-cover shrink-0"
                       // 贴纸的样子：白边 + 一点点歪，像真的粘上去的
-                      style={{ border: "3px solid oklch(0.99 0 0)", boxShadow: "0 2px 8px oklch(0 0 0 / 0.2)", transform: `rotate(${(id.charCodeAt(0) % 7) - 3}deg)` }}
+                      style={{ border: "3px solid oklch(0.99 0 0)", boxShadow: "0 2px 8px oklch(0 0 0 / 0.2)", transform: `rotate(${(hashOf(id) % 7) - 3}deg)` }}
                     />
                   ))}
                 </div>
@@ -291,7 +292,7 @@ export function DiaryApp({
                     key={id}
                     photo={photos[id]}
                     className="w-28 h-28 rounded-sm object-cover"
-                    style={{ border: "5px solid oklch(0.99 0 0)", boxShadow: "0 3px 12px oklch(0 0 0 / 0.22)", transform: `rotate(${(id.charCodeAt(0) % 7) - 3}deg)` }}
+                    style={{ border: "5px solid oklch(0.99 0 0)", boxShadow: "0 3px 12px oklch(0 0 0 / 0.22)", transform: `rotate(${(hashOf(id) % 7) - 3}deg)` }}
                   />
                 ))}
               </div>
