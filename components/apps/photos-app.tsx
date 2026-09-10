@@ -11,6 +11,7 @@ import {
 import { PhotoImg } from "@/components/photos/photo-img";
 import { PhotoViewer } from "@/components/photos/photo-viewer";
 import type { Contact } from "@/lib/os/contacts";
+import { ContactStrip } from "@/components/phone/contact-strip";
 
 export function PhotosApp({ contacts }: { contacts: Contact[] }) {
   const [who, setWho] = useState(contacts[0]?.id ?? "");
@@ -47,21 +48,7 @@ export function PhotosApp({ contacts }: { contacts: Contact[] }) {
     <div className="flex-1 min-h-0 flex flex-col">
       <div className="shrink-0 flex items-center gap-2 px-4 pb-2">
         {contacts.length > 1 &&
-          contacts.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => setWho(c.id)}
-              className="shrink-0 w-8 h-8 rounded-full grid place-items-center text-[16px]"
-              style={{
-                background: c.tint,
-                opacity: c.id === who ? 1 : 0.4,
-                outline: c.id === who ? "2px solid var(--ink)" : "none",
-                outlineOffset: 2,
-              }}
-            >
-              {c.emoji}
-            </button>
-          ))}
+          <ContactStrip contacts={contacts} who={who} onPick={setWho} />}
         <span className="flex-1" />
         {/* 「收着的」和「聊天里出现过的」是两件事。默认只看收着的——
             相册要是把每张随手发的图都堆进来，收藏这个动作就没意义了。 */}

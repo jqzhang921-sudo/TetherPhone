@@ -20,8 +20,9 @@ type Dump = {
   stores: Record<string, unknown[]>;
 };
 
-/// 图片将来是 Blob 存在 photos 表里，JSON 装不下二进制。
-/// 现在先把编解码写好，等相册做出来不用再迁一次格式。
+/// JSON 装不下二进制，而库里到处是 Blob：相册的图、联系人身上的头像。
+/// pack/unpack 递归走整棵树，所以**新加一个 Blob 字段不用动这里**——
+/// 头像就是这么白捡的。
 type PackedBlob = { __blob: string; type: string };
 
 const isBlob = (v: unknown): v is Blob =>

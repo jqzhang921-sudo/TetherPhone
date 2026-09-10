@@ -10,6 +10,7 @@ import {
 } from "@/lib/memory/store";
 import { Tree } from "@/components/memory/tree";
 import type { Contact } from "@/lib/os/contacts";
+import { ContactStrip } from "@/components/phone/contact-strip";
 
 export function MemoryApp({ contacts }: { contacts: Contact[] }) {
   const [who, setWho] = useState(contacts[0]?.id ?? "");
@@ -42,21 +43,7 @@ export function MemoryApp({ contacts }: { contacts: Contact[] }) {
     <div className="flex-1 min-h-0 flex flex-col">
       <div className="shrink-0 flex items-center gap-2 px-4 pb-2">
         {contacts.length > 1 &&
-          contacts.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => setWho(c.id)}
-              className="shrink-0 w-8 h-8 rounded-full grid place-items-center text-[16px]"
-              style={{
-                background: c.tint,
-                opacity: c.id === who ? 1 : 0.4,
-                outline: c.id === who ? "2px solid var(--ink)" : "none",
-                outlineOffset: 2,
-              }}
-            >
-              {c.emoji}
-            </button>
-          ))}
+          <ContactStrip contacts={contacts} who={who} onPick={setWho} />}
         <span className="flex-1" />
         {/* 「它每轮真正拿到的那段字」——刻意能看原文。
             美化过的摘要会让人以为它记得的比实际多。 */}

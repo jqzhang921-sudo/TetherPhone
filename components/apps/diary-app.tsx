@@ -21,6 +21,9 @@ import { loadMsgs, newId, saveMsgs, type Msg } from "@/lib/chat/store";
 import { displayName, type Contact } from "@/lib/os/contacts";
 import { hashOf } from "@/lib/id";
 import type { Settings } from "@/lib/os/settings";
+import { ContactStrip } from "@/components/phone/contact-strip";
+import { Avatar } from "@/components/phone/avatar";
+import { faceOf, useMe } from "@/lib/os/avatar";
 
 /// 一次性把整条流读完。日记不需要逐字出现——它是「写好了拿给你看」，
 /// 不是「正在说话」。
@@ -97,6 +100,7 @@ export function DiaryApp({
   contacts: Contact[];
   settings: Settings;
 }) {
+  const me = useMe(settings);
   const [who, setWho] = useState(contacts[0]?.id ?? "");
   const [rows, setRows] = useState<DiaryEntry[]>([]);
   const [reading, setReading] = useState<DiaryEntry | null>(null);
@@ -345,21 +349,7 @@ export function DiaryApp({
     <div className="flex-1 min-h-0 flex flex-col">
       {contacts.length > 1 && (
         <div className="shrink-0 flex gap-2 px-4 pb-2 overflow-x-auto no-bar">
-          {contacts.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => setWho(c.id)}
-              className="shrink-0 w-8 h-8 rounded-full grid place-items-center text-[16px]"
-              style={{
-                background: c.tint,
-                opacity: c.id === who ? 1 : 0.4,
-                outline: c.id === who ? "2px solid var(--ink)" : "none",
-                outlineOffset: 2,
-              }}
-            >
-              {c.emoji}
-            </button>
-          ))}
+          <ContactStrip contacts={contacts} who={who} onPick={setWho} />
         </div>
       )}
 
@@ -391,12 +381,7 @@ export function DiaryApp({
           >
             <span className="flex items-center gap-1.5 text-[11px] mb-1.5"
               style={{ color: "oklch(0.45 0.02 250)" }}>
-              <span
-                className="w-4 h-4 rounded-full grid place-items-center text-[9px]"
-                style={{ background: e.author === "me" ? "oklch(0.7 0.02 250)" : contact.tint }}
-              >
-                {e.author === "me" ? "你" : contact.emoji}
-              </span>
+              <Avatar face={e.author === "me" ? me : faceOf(contact)} size={16} />
               {dayLabel(e.at)}
               {e.secret && <Lock />}
             </span>

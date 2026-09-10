@@ -9,6 +9,8 @@ import { completeOnce, identity } from "@/lib/ai";
 import { loadMsgs, newId, saveMsgs, type Msg } from "@/lib/chat/store";
 import { displayName, type Contact } from "@/lib/os/contacts";
 import type { Settings } from "@/lib/os/settings";
+import { Avatar } from "@/components/phone/avatar";
+import { faceOf, useMe } from "@/lib/os/avatar";
 
 type Bubble = { id: string; who: "me" | "them"; text: string };
 
@@ -37,6 +39,7 @@ export function MusicPlayer({
   onClose: () => void;
 }) {
   const p = usePlayer();
+  const me = useMe(settings);
   const [tone, setTone] = useState<Tone | null>(null);
   const [bubbles, setBubbles] = useState<Bubble[]>([]);
   const [input, setInput] = useState("");
@@ -180,16 +183,8 @@ export function MusicPlayer({
       {/* 两个头像：中间偏上。一进来先看到「谁和你在这儿」 */}
       <div className="shrink-0 flex flex-col items-center gap-1 pb-3">
         <span className="flex items-center -space-x-2.5">
-          <span className="w-11 h-11 rounded-full grid place-items-center text-[22px] ring-2"
-            style={{ background: "oklch(0.72 0.02 250)", ["--tw-ring-color" as string]: "var(--glass-tint)" }}>
-            {settings.userEmoji}
-          </span>
-          {together && (
-            <span className="w-11 h-11 rounded-full grid place-items-center text-[22px] ring-2"
-              style={{ background: together.tint, ["--tw-ring-color" as string]: "var(--glass-tint)" }}>
-              {together.emoji}
-            </span>
-          )}
+          <Avatar face={me} size={44} ring />
+          {together && <Avatar face={faceOf(together)} size={44} ring />}
         </span>
         <span className="text-[11px]" style={{ color: "var(--ink-faint)" }}>
           {together

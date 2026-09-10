@@ -11,6 +11,9 @@ import {
 import { hashOf } from "@/lib/id";
 import { displayName, type Contact } from "@/lib/os/contacts";
 import type { Settings } from "@/lib/os/settings";
+import { ContactStrip } from "@/components/phone/contact-strip";
+import { Avatar } from "@/components/phone/avatar";
+import { faceOf, useMe, type Face } from "@/lib/os/avatar";
 
 function Sticky({
   note,
@@ -21,7 +24,7 @@ function Sticky({
   note: Note;
   /// 谁写的：头像和名字。**一块公用的板，看得出是谁贴的才有意义**
   /// ——只写「你写的」三个字，扫一眼分不出哪些是它留的。
-  who: { emoji: string; name: string; tint: string };
+  who: { face: Face; name: string };
   onToggle: () => void;
   onDrop: () => void;
 }) {
@@ -63,12 +66,7 @@ function Sticky({
       </button>
       <div className="flex items-center justify-between pt-1.5">
         <span className="flex items-center gap-1">
-          <span
-            className="w-4 h-4 rounded-full grid place-items-center text-[9px] shrink-0"
-            style={{ background: who.tint }}
-          >
-            {who.emoji}
-          </span>
+          <Avatar face={who.face} size={16} />
           <span className="text-[10px]" style={{ color: "oklch(0.45 0.02 250)" }}>
             {who.name}
           </span>
@@ -90,10 +88,8 @@ export function NotesApp({
   contacts: Contact[];
   settings: Settings;
 }) {
-  const me = {
-    emoji: settings.userEmoji,
-    name: settings.userName.trim() || "你",
-  };
+  const meFace = useMe(settings);
+  const me = { face: meFace, name: settings.userName.trim() || "你" };
   const [who, setWho] = useState(contacts[0]?.id ?? "");
   const [rows, setRows] = useState<Note[]>([]);
   const [text, setText] = useState("");
@@ -133,21 +129,7 @@ export function NotesApp({
     <div className="flex-1 min-h-0 flex flex-col">
       {contacts.length > 1 && (
         <div className="shrink-0 flex gap-2 px-4 pb-2">
-          {contacts.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => setWho(c.id)}
-              className="shrink-0 w-8 h-8 rounded-full grid place-items-center text-[16px]"
-              style={{
-                background: c.tint,
-                opacity: c.id === who ? 1 : 0.4,
-                outline: c.id === who ? "2px solid var(--ink)" : "none",
-                outlineOffset: 2,
-              }}
-            >
-              {c.emoji}
-            </button>
-          ))}
+          {<ContactStrip contacts={contacts} who={who} onPick={setWho} />}
         </div>
       )}
 
@@ -170,8 +152,8 @@ export function NotesApp({
                 note={n}
                 who={
                   n.author === "me"
-                    ? { emoji: me.emoji, name: me.name, tint: "oklch(0.72 0.02 250)" }
-                    : { emoji: contact.emoji, name: displayName(contact), tint: contact.tint }
+                    ? me
+                    : { face: faceOf(contact), name: displayName(contact) }
                 }
                 onToggle={async () => {
                   await saveNote({ ...n, done: true, doneAt: Date.now() });
@@ -198,8 +180,8 @@ export function NotesApp({
                   note={n}
                   who={
                   n.author === "me"
-                    ? { emoji: me.emoji, name: me.name, tint: "oklch(0.72 0.02 250)" }
-                    : { emoji: contact.emoji, name: displayName(contact), tint: contact.tint }
+                    ? me
+                    : { face: faceOf(contact), name: displayName(contact) }
                 }
                   onToggle={async () => {
                     // 撤销：勾回去，重新算它的一周

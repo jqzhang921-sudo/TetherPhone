@@ -2,10 +2,14 @@
 import { useRef, useState } from "react";
 import { WALLPAPERS } from "@/lib/os/wallpapers";
 import type { Settings } from "@/lib/os/settings";
+import type { Contact } from "@/lib/os/contacts";
 import { exportBackup, importBackup } from "@/lib/os/backup";
 import { clearAllMsgs } from "@/lib/chat/store";
 import { PHONE_SCOPE, blankPhoto, savePhoto, shrink } from "@/lib/photos/store";
 import { MusicLogin } from "./music-login";
+import { Avatar } from "@/components/phone/avatar";
+import { PhotoPicker } from "@/components/photos/photo-picker";
+import { cropSquare, clearMeAvatar, saveMeAvatar, useMe } from "@/lib/os/avatar";
 
 const inputStyle: React.CSSProperties = {
   background: "color-mix(in oklab, var(--glass-tint) 88%, transparent)",
@@ -43,6 +47,10 @@ function Field({
   );
 }
 
+/// 没设图片头像时挑一个。和联系人那份刻意**不是**同一组——
+/// 两边选到同一个 emoji，聊天里就分不出谁是谁了。
+const FACES = ["🌱", "🐟", "🍊", "⛅", "🪺", "🧶", "🫐", "🌾", "🐌", "🎐"];
+
 function Group({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="mb-6">
@@ -54,13 +62,18 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
 
 export function SettingsApp({
   settings,
+  contacts,
   onChange,
   onReloadAll,
 }: {
   settings: Settings;
+  /// 只为「从相册选头像」用——相册是按联系人分的，得知道翻谁的
+  contacts: Contact[];
   onChange: (patch: Partial<Settings>) => void;
   onReloadAll: () => void;
 }) {
+  const me = useMe(settings);
+  const [pickingFace, setPickingFace] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -93,6 +106,67 @@ export function SettingsApp({
 
       {/* 名字和人设不在这儿了——它们归联系人管，在通讯录里改。 */}
       <Group title="你自己">
+        <div className="flex items-center gap-3.5">
+          <Avatar face={me} size={56} />
+          <div className="flex-1 flex flex-wrap gap-2">
+            <button
+              onClick={() => setPickingFace(true)}
+              className="rounded-xl px-3 py-2 text-[12px]"
+              style={{ background: "color-mix(in oklab, var(--glass-tint) 70%, transparent)", color: "var(--ink)" }}
+            >
+              从相册选
+            </button>
+            <label
+              className="rounded-xl px-3 py-2 text-[12px] cursor-pointer"
+              style={{ background: "color-mix(in oklab, var(--glass-tint) 70%, transparent)", color: "var(--ink)" }}
+            >
+              自己传
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = "";
+                  if (!f) return;
+                  const { blob } = await shrink(f, 640, 0.9);
+                  await saveMeAvatar(await cropSquare(blob));
+                  // 时间戳一变，用到头像的几处一起重读
+                  onChange({ userAvatarAt: Date.now() });
+                }}
+              />
+            </label>
+            {settings.userAvatarAt > 0 && (
+              <button
+                onClick={async () => {
+                  await clearMeAvatar();
+                  onChange({ userAvatarAt: 0 });
+                }}
+                className="rounded-xl px-3 py-2 text-[12px]"
+                style={{ background: "color-mix(in oklab, var(--glass-tint) 70%, transparent)", color: "var(--ink-faint)" }}
+              >
+                去掉
+              </button>
+            )}
+          </div>
+        </div>
+        {settings.userAvatarAt === 0 && (
+          <div className="flex flex-wrap gap-2">
+            {FACES.map((e) => (
+              <button
+                key={e}
+                onClick={() => onChange({ userEmoji: e })}
+                className="w-9 h-9 rounded-full grid place-items-center text-[18px]"
+                style={{
+                  background: "color-mix(in oklab, var(--glass-tint) 70%, transparent)",
+                  outline: settings.userEmoji === e ? "2px solid var(--ink)" : "none",
+                }}
+              >
+                {e}
+              </button>
+            ))}
+          </div>
+        )}
         <Field
           label="你叫"
           value={settings.userName}
@@ -255,6 +329,19 @@ export function SettingsApp({
         <p className="text-[12px] text-center pb-2" style={{ color: "var(--ink-dim)" }}>
           {note}
         </p>
+      )}
+
+      {pickingFace && contacts[0] && (
+        <PhotoPicker
+          contactId={contacts[0].id}
+          picked={[]}
+          onDone={() => {}}
+          onPick={async (ph) => {
+            await saveMeAvatar(await cropSquare(ph.blob));
+            onChange({ userAvatarAt: Date.now() });
+          }}
+          onClose={() => setPickingFace(false)}
+        />
       )}
     </div>
   );

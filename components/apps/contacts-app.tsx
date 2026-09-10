@@ -1,5 +1,7 @@
 "use client";
 import { displayName, type Contact } from "@/lib/os/contacts";
+import { Avatar } from "@/components/phone/avatar";
+import { faceOf } from "@/lib/os/avatar";
 
 export function ContactsApp({
   contacts,
@@ -19,12 +21,7 @@ export function ContactsApp({
             onClick={() => onOpen(c)}
             className="w-full flex items-center gap-3 px-2 py-3 text-left active:opacity-60"
           >
-            <span
-              className="shrink-0 grid place-items-center rounded-full w-11 h-11 text-[22px]"
-              style={{ background: c.tint }}
-            >
-              {c.emoji}
-            </span>
+            <Avatar face={faceOf(c)} size={44} />
             <span className="min-w-0 flex-1">
               <span className="block text-[15px] truncate" style={{ color: "var(--ink)" }}>
                 {displayName(c)}

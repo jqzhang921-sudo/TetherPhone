@@ -11,11 +11,15 @@ export function PhotoPicker({
   contactId,
   picked,
   onDone,
+  onPick,
   onClose,
 }: {
   contactId: string;
   picked: string[];
   onDone: (ids: string[]) => void;
+  /// 传了它就是单选：点一张立刻回调并关掉，不出下面那个确认按钮。
+  /// 挑头像是"挑一张"，多选的编号和"贴 N 张"在那儿是多余的。
+  onPick?: (p: Photo) => void;
   onClose: () => void;
 }) {
   const [rows, setRows] = useState<Photo[]>([]);
@@ -68,7 +72,12 @@ export function PhotoPicker({
                 return (
                   <button
                     key={p.id}
-                    onClick={() => toggle(p.id)}
+                    onClick={() => {
+                      if (onPick) {
+                        onPick(p);
+                        onClose();
+                      } else toggle(p.id);
+                    }}
                     className="relative rounded-lg overflow-hidden"
                     style={{ aspectRatio: "1 / 1" }}
                   >
@@ -92,7 +101,7 @@ export function PhotoPicker({
           )}
         </div>
 
-        <div className="shrink-0 px-4 pb-5 pt-1">
+        <div className="shrink-0 px-4 pb-5 pt-1" hidden={!!onPick}>
           <button
             onClick={() => {
               onDone(sel);

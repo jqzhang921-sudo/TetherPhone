@@ -85,6 +85,19 @@ export async function getAll<T extends Row>(store: StoreName): Promise<T[]> {
   }
 }
 
+/// 按 id 取一条。
+///
+/// 别用 getAll 再 find——那会把整张表的记录都读出来（相册里就是每一张图的
+/// blob），只为拿其中一条。
+export async function get<T extends Row>(store: StoreName, id: string): Promise<T | undefined> {
+  try {
+    // 和 getAll 一样吞掉隐私模式的错，别让读不到数据库变成整页白屏
+    return await run<T | undefined>(store, "readonly", (s) => s.get(id) as IDBRequest<T | undefined>);
+  } catch {
+    return undefined;
+  }
+}
+
 export async function getAllBy<T extends Row>(
   store: StoreName,
   contactId: string,

@@ -16,6 +16,8 @@ import { MusicPlayer } from "./music-player";
 import { displayName, type Contact } from "@/lib/os/contacts";
 import { newId } from "@/lib/id";
 import type { Settings } from "@/lib/os/settings";
+import { Avatar } from "@/components/phone/avatar";
+import { faceOf, useMe } from "@/lib/os/avatar";
 
 function Bars({ on }: { on: boolean }) {
   return (
@@ -53,6 +55,7 @@ export function MusicApp({
   onChange: (p: Partial<Settings>) => void;
 }) {
   const p = usePlayer();
+  const me = useMe(settings);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [tab, setTab] = useState<"lib" | "find">("lib");
   const [q, setQ] = useState("");
@@ -206,26 +209,17 @@ export function MusicApp({
         <div className="shrink-0 px-4 pb-2">
           <div className="flex items-center gap-2">
             <span className="flex items-center -space-x-2">
-              <span
-                className="w-7 h-7 rounded-full grid place-items-center text-[14px] ring-2"
-                style={{ background: "oklch(0.7 0.02 250)", ["--tw-ring-color" as string]: "var(--glass-tint)" }}
-              >
-                {settings.userEmoji}
-              </span>
+              <Avatar face={me} size={28} ring />
               {contacts.map((c) => {
                 const on = c.id === settings.togetherWith;
                 return (
                   <button
                     key={c.id}
                     onClick={() => onChange({ togetherWith: on ? "" : c.id })}
-                    className="w-7 h-7 rounded-full grid place-items-center text-[14px] ring-2 transition-opacity"
-                    style={{
-                      background: c.tint,
-                      opacity: on ? 1 : 0.35,
-                      ["--tw-ring-color" as string]: "var(--glass-tint)",
-                    }}
+                    className="rounded-full transition-opacity"
+                    style={{ opacity: on ? 1 : 0.35 }}
                   >
-                    {c.emoji}
+                    <Avatar face={faceOf(c)} size={28} ring />
                   </button>
                 );
               })}

@@ -21,6 +21,9 @@ import { PhotoImg } from "@/components/photos/photo-img";
 import { PhotoPicker } from "@/components/photos/photo-picker";
 import { displayName, type Contact } from "@/lib/os/contacts";
 import type { Settings } from "@/lib/os/settings";
+import { ContactStrip } from "@/components/phone/contact-strip";
+import { Avatar } from "@/components/phone/avatar";
+import { faceOf, useMe } from "@/lib/os/avatar";
 
 function Heart({ on }: { on: boolean }) {
   return (
@@ -38,6 +41,7 @@ export function MomentsApp({
   contacts: Contact[];
   settings: Settings;
 }) {
+  const me = useMe(settings);
   const [who, setWho] = useState(contacts[0]?.id ?? "");
   const [posts, setPosts] = useState<Post[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -136,7 +140,7 @@ export function MomentsApp({
   }
 
   const nameOf = (a: "me" | "them") => (a === "me" ? settings.userName.trim() || "你" : displayName(contact));
-  const faceOf = (a: "me" | "them") => (a === "me" ? settings.userEmoji : contact.emoji);
+  const avatarOf = (a: "me" | "them") => (a === "me" ? me : faceOf(contact));
   const tintOf = (a: "me" | "them") => (a === "me" ? "oklch(0.7 0.02 250)" : contact.tint);
 
   // ── 写一条 ──────────────────────────────────────────────────
@@ -206,21 +210,7 @@ export function MomentsApp({
     <div className="flex-1 min-h-0 flex flex-col">
       {contacts.length > 1 && (
         <div className="shrink-0 flex gap-2 px-4 pb-2">
-          {contacts.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => setWho(c.id)}
-              className="shrink-0 w-8 h-8 rounded-full grid place-items-center text-[16px]"
-              style={{
-                background: c.tint,
-                opacity: c.id === who ? 1 : 0.4,
-                outline: c.id === who ? "2px solid var(--ink)" : "none",
-                outlineOffset: 2,
-              }}
-            >
-              {c.emoji}
-            </button>
-          ))}
+          {<ContactStrip contacts={contacts} who={who} onPick={setWho} />}
         </div>
       )}
 
@@ -243,12 +233,7 @@ export function MomentsApp({
           return (
             <article key={p.id} className="glass rounded-2xl p-3.5">
               <div className="flex items-center gap-2.5 mb-2">
-                <span
-                  className="w-8 h-8 rounded-full grid place-items-center text-[16px] shrink-0"
-                  style={{ background: tintOf(p.author) }}
-                >
-                  {faceOf(p.author)}
-                </span>
+                <Avatar face={avatarOf(p.author)} size={32} />
                 <span className="text-[14px]" style={{ color: "var(--ink)" }}>
                   {nameOf(p.author)}
                 </span>

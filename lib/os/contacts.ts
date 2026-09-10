@@ -18,10 +18,13 @@ export type Contact = {
   name: string;
   /// 用户给它起的备注。有备注就显示备注——和真通讯录一样。
   note: string;
-  /// 头像先用 emoji + 底色。图片头像等相册那条管线做好再说，
-  /// 不然要先解决存哪、怎么裁、怎么备份三件事。
+  /// 没设图片头像时用的 emoji + 底色。
   emoji: string;
   tint: string;
+  /// 图片头像。**存的是裁好的小图本身，不是相册里那张的 id**——
+  /// 头像该比来源活得久，把原图从相册删掉不该让头像变空白。
+  /// 见 lib/os/avatar.ts。
+  avatar?: Blob;
   /// 虚拟号码。现在纯装饰，将来打电话用得上。
   phone: string;
   signature: string;

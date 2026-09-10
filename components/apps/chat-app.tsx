@@ -22,6 +22,8 @@ import { useBlobUrl } from "@/lib/use-blob-url";
 import { usePlayer } from "@/components/phone/player";
 import { PHONE, loadTracks, saveTrack, search as searchSongs } from "@/lib/music/store";
 import type { Settings } from "@/lib/os/settings";
+import { Avatar } from "@/components/phone/avatar";
+import { faceOf } from "@/lib/os/avatar";
 
 /// 发给上游的消息。比库里存的 Msg 多两样：assistant 可能带 tool_calls，
 /// tool 角色要带 tool_call_id。
@@ -77,17 +79,6 @@ function systemPrompt(
   if (locked) bits.push(locked);
 
   return bits.join("\n");
-}
-
-function Avatar({ c, size = 44 }: { c: Contact; size?: number }) {
-  return (
-    <span
-      className="shrink-0 grid place-items-center rounded-full"
-      style={{ width: size, height: size, background: c.tint, fontSize: size * 0.5 }}
-    >
-      {c.emoji}
-    </span>
-  );
 }
 
 /// 待发区的一张。发送前还没落库，所以直接拿 Blob 显示。
@@ -411,7 +402,7 @@ export function ChatApp({
               onClick={() => setOpenId(c.id)}
               className="w-full flex items-center gap-3 px-2 py-3 text-left active:opacity-60"
             >
-              <Avatar c={c} />
+              <Avatar face={faceOf(c)} />
               <span className="min-w-0 flex-1">
                 <span className="block text-[15px] truncate" style={{ color: "var(--ink)" }}>
                   {displayName(c)}
@@ -439,7 +430,7 @@ export function ChatApp({
         </button>
         {/* 点头像进主页——个性签名、号码、以后的朋友圈都在那儿 */}
         <button onClick={() => onOpenProfile(contact)} className="flex items-center gap-2.5 active:opacity-60">
-          <Avatar c={contact} size={32} />
+          <Avatar face={faceOf(contact)} size={32} />
           <span className="text-[16px] font-medium" style={{ color: "var(--ink)" }}>
             {displayName(contact)}
           </span>

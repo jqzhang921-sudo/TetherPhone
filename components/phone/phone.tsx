@@ -309,7 +309,12 @@ export function Phone() {
           ) : app.id === "weather" ? (
             <WeatherApp settings={settings} onChange={patchSettings} />
           ) : app.id === "settings" ? (
-            <SettingsApp settings={settings} onChange={patchSettings} onReloadAll={reloadAll} />
+            <SettingsApp
+              settings={settings}
+              contacts={contacts}
+              onChange={patchSettings}
+              onReloadAll={reloadAll}
+            />
           ) : (
             <PlaceholderApp app={app} />
           )}

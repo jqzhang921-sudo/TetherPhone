@@ -12,6 +12,9 @@ export type Settings = {
   /// 用户自己的资料——聊天页和主页要显示
   userName: string;
   userEmoji: string;
+  /// 换头像的时间戳，0 = 没设过。**当刷新信号用**：settings 已经流到每个
+  /// 要画头像的组件了，这个数一变，它们一起去重读那张图。
+  userAvatarAt: number;
   userSignature: string;
   /// 手动指定的天气城市。留空 = 自动定位。
   /// 有这个字段是因为按 IP 定的是**网络出口**，家宽常常落在省会甚至邻省。
@@ -45,6 +48,7 @@ export const DEFAULT_SETTINGS: Settings = {
   wallpaperId: "dusk",
   userName: "",
   userEmoji: "🌱",
+  userAvatarAt: 0,
   userSignature: "",
   weatherPlace: "",
   musicApiBase: "",

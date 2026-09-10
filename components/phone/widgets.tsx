@@ -8,6 +8,8 @@ import { textOf } from "@/lib/weather/wmo";
 import { Glyph } from "@/components/weather/glyph";
 import { displayName, type Contact } from "@/lib/os/contacts";
 import type { Settings } from "@/lib/os/settings";
+import { Avatar } from "./avatar";
+import { faceOf, useMe } from "@/lib/os/avatar";
 
 export type WidgetId = "clock" | "weather" | "music" | "photos" | "notes";
 
@@ -127,20 +129,13 @@ function Weather({ settings, onOpen }: Props) {
 /// ——同一张卡两种状态，不是两张卡。
 function Music({ settings, contacts, onOpen }: Props) {
   const p = usePlayer();
+  const me = useMe(settings);
   const c = contacts.find((x) => x.id === settings.togetherWith) ?? null;
   return (
     <Card app="music" onOpen={onOpen} className="col-span-2">
       <span className="flex items-center -space-x-2">
-        <span className="w-7 h-7 rounded-full grid place-items-center text-[14px] ring-2"
-          style={{ background: "oklch(0.72 0.02 250)", ["--tw-ring-color" as string]: "var(--glass-tint)" }}>
-          {settings.userEmoji}
-        </span>
-        {c && (
-          <span className="w-7 h-7 rounded-full grid place-items-center text-[14px] ring-2"
-            style={{ background: c.tint, ["--tw-ring-color" as string]: "var(--glass-tint)" }}>
-            {c.emoji}
-          </span>
-        )}
+        <Avatar face={me} size={28} ring />
+        {c && <Avatar face={faceOf(c)} size={28} ring />}
       </span>
       {p.track ? (
         <>

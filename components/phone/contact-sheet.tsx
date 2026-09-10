@@ -1,6 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
 import { displayName, type Contact } from "@/lib/os/contacts";
+import { cropSquare, faceOf } from "@/lib/os/avatar";
+import { shrink } from "@/lib/photos/store";
+import { PhotoPicker } from "@/components/photos/photo-picker";
+import { Avatar } from "./avatar";
 
 const TINTS = [
   "oklch(0.72 0.15 250)",
@@ -23,7 +27,6 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
     </label>
   );
 }
-
 const inputStyle: React.CSSProperties = {
   background: "color-mix(in oklab, var(--glass-tint) 88%, transparent)",
   border: "1px solid var(--glass-edge)",
@@ -47,6 +50,7 @@ export function ContactSheet({
   canDelete: boolean;
 }) {
   const [draft, setDraft] = useState(contact);
+  const [picking, setPicking] = useState(false);
   const [entered, setEntered] = useState(false);
 
   useEffect(() => setDraft(contact), [contact]);
@@ -89,12 +93,7 @@ export function ContactSheet({
 
         <div className="overflow-y-auto no-bar px-5 pb-6 flex flex-col gap-4">
           <div className="flex flex-col items-center gap-2 pt-1">
-            <span
-              className="grid place-items-center rounded-full w-[72px] h-[72px] text-[36px]"
-              style={{ background: draft.tint }}
-            >
-              {draft.emoji}
-            </span>
+            <Avatar face={faceOf(draft)} size={72} />
             <span className="text-[17px] font-medium" style={{ color: "var(--ink)" }}>
               {displayName(draft)}
             </span>
@@ -104,7 +103,48 @@ export function ContactSheet({
           </div>
 
           <Row label="头像">
-            <div className="flex flex-wrap gap-2">
+            <div className="flex gap-2 pb-2.5">
+              <button
+                onClick={() => setPicking(true)}
+                className="flex-1 rounded-xl py-2 text-[12px]"
+                style={{ background: "color-mix(in oklab, var(--glass-tint) 70%, transparent)", color: "var(--ink)" }}
+              >
+                从相册选
+              </button>
+              <label
+                className="flex-1 rounded-xl py-2 text-[12px] text-center cursor-pointer"
+                style={{ background: "color-mix(in oklab, var(--glass-tint) 70%, transparent)", color: "var(--ink)" }}
+              >
+                自己传
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    // 先清空再用：同一张图连选两次的话，value 没变就不会再触发 change
+                    e.target.value = "";
+                    if (!f) return;
+                    // 先压到 640 再裁：手机原图三五兆，直接丢给 createImageBitmap
+                    // 是让它解码一张四千万像素的图，只为取中间一个方块
+                    const { blob } = await shrink(f, 640, 0.9);
+                    set({ avatar: await cropSquare(blob) });
+                  }}
+                />
+              </label>
+              {draft.avatar && (
+                <button
+                  onClick={() => set({ avatar: undefined })}
+                  className="rounded-xl px-3 text-[12px]"
+                  style={{ background: "color-mix(in oklab, var(--glass-tint) 70%, transparent)", color: "var(--ink-faint)" }}
+                >
+                  去掉
+                </button>
+              )}
+            </div>
+            {/* 没设图片时才出现。留着这排而不是删掉——新建一个联系人立刻就有张脸，
+                不用先去相册里找图。设了图片再显示就成了摆设：点了没有任何反应。 */}
+            <div className="flex flex-wrap gap-2" hidden={!!draft.avatar}>
               {EMOJI.map((e) => (
                 <button
                   key={e}
@@ -216,6 +256,16 @@ export function ContactSheet({
           </button>
         </div>
       </div>
+
+      {picking && (
+        <PhotoPicker
+          contactId={draft.id}
+          picked={[]}
+          onDone={() => {}}
+          onPick={async (ph) => set({ avatar: await cropSquare(ph.blob) })}
+          onClose={() => setPicking(false)}
+        />
+      )}
     </div>
   );
 }
