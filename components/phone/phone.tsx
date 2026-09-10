@@ -4,9 +4,10 @@ import { LockScreen } from "./lock-screen";
 import { HomeScreen } from "./home-screen";
 import { AppWindow } from "./app-window";
 import { ContactSheet } from "./contact-sheet";
-import { ProfilePage } from "./profile-page";
+import { ProfilePage, type Who } from "./profile-page";
+import { ME_TINT, faceOf, useMe } from "@/lib/os/avatar";
+import { displayName } from "@/lib/os/contacts";
 import { ChatApp } from "@/components/apps/chat-app";
-import { ContactsApp } from "@/components/apps/contacts-app";
 import { DiaryApp } from "@/components/apps/diary-app";
 import { LettersApp } from "@/components/apps/letters-app";
 import { WeatherApp } from "@/components/apps/weather-app";
@@ -48,7 +49,9 @@ export function Phone() {
   const [closing, setClosing] = useState(false);
   const [sheet, setSheet] = useState<Contact | null>(null);
   /// 主页是「看」，资料卡是「改」。两层分开——从主页点编辑才叠资料卡上去。
-  const [profile, setProfile] = useState<Contact | null>(null);
+  /// `"me"` = 看自己那张。
+  const [profile, setProfile] = useState<Contact | "me" | null>(null);
+  const me = useMe(settings);
   /// 从主页跳进聊天时带上「开谁」。**app 关掉就清空**——
   /// 不清的话下次从桌面点聊天会莫名其妙直接进上一个人的会话。
   const [chatWith, setChatWith] = useState<string | null>(null);
@@ -68,7 +71,7 @@ export function Phone() {
   // iOS 加到主屏幕后没有系统返回键，所以 home 条不能撤，它才是那边唯一的出口。
   const depth = useRef(0);
   const sheetRef = useRef<Contact | null>(null);
-  const profileRef = useRef<Contact | null>(null);
+  const profileRef = useRef<Contact | "me" | null>(null);
   const openRef = useRef<Open | null>(null);
   useEffect(() => {
     sheetRef.current = sheet;
@@ -286,10 +289,24 @@ export function Phone() {
     pushLayer();
   };
 
-  const showProfile = (c: Contact) => {
+  const showProfile = (c: Contact | "me") => {
     setProfile(c);
     pushLayer();
   };
+
+  /// 联系人 → 主页要的那份形状。**收在一处**，
+  /// 否则加一个字段要在两个地方各拼一遍。
+  const whoOf = (c: Contact): Who => ({
+    id: c.id,
+    name: displayName(c),
+    realName: c.note.trim() && c.name.trim() !== c.note.trim() ? c.name.trim() : "",
+    signature: c.signature,
+    face: faceOf(c),
+    tint: c.tint,
+    bannerAt: c.bannerAt,
+    songs: c.songs,
+    together: c.together,
+  });
 
   const app = open ? appById(open.id) : undefined;
 
@@ -319,6 +336,8 @@ export function Phone() {
               ["--glass-alpha-strong" as string]: `${Math.min(92, settings.glassAlpha + 18)}%`,
             }
           : null),
+        ...(settings.iconAlpha ? { ["--glass-icon-alpha" as string]: `${settings.iconAlpha}%` } : null),
+        ...(settings.glassBlur ? { ["--glass-blur" as string]: `${settings.glassBlur}px` } : null),
       }}
     >
       {locked ? (
@@ -340,10 +359,9 @@ export function Phone() {
               contacts={contacts}
               settings={settings}
               onOpenProfile={showProfile}
+              onAddContact={() => void addContact()}
               openWith={chatWith}
             />
-          ) : app.id === "contacts" ? (
-            <ContactsApp contacts={contacts} onOpen={showProfile} onAdd={() => void addContact()} />
           ) : app.id === "diary" ? (
             <DiaryApp contacts={contacts} settings={settings} />
           ) : app.id === "letters" ? (
@@ -381,6 +399,10 @@ export function Phone() {
               contacts={contacts}
               onChange={patchSettings}
               onReloadAll={reloadAll}
+              onOpenMe={() => {
+                closeApp();
+                window.setTimeout(() => showProfile("me"), 460);
+              }}
             />
           ) : (
             <PlaceholderApp app={app} />
@@ -389,9 +411,33 @@ export function Phone() {
       )}
 
       {/* 主页：聊天里点头像、通讯录里点条目，进的都是这儿 */}
-      {profile && (
+      {profile === "me" && (
         <ProfilePage
-          contact={contacts.find((c) => c.id === profile.id) ?? profile}
+          who={{
+            // 自己没有 contactId，给一个固定的，横幅才挂得上
+            id: "__me__",
+            name: settings.userName.trim() || "你",
+            signature: settings.userSignature,
+            face: me,
+            tint: ME_TINT,
+            bannerAt: settings.userBannerAt || undefined,
+          }}
+          onEdit={() => {
+            // 自己的资料在设置里改——名字、签名、头像本来就都在那儿
+            closeLayer();
+            const box = device.current?.getBoundingClientRect();
+            const c = box
+              ? { x: box.left + box.width / 2, y: box.top + box.height / 2 }
+              : { x: 0, y: 0 };
+            window.setTimeout(() => openApp("settings", c), 60);
+          }}
+          onClose={closeLayer}
+        />
+      )}
+
+      {profile && profile !== "me" && (
+        <ProfilePage
+          who={whoOf(contacts.find((c) => c.id === profile.id) ?? profile)}
           onEdit={() => showSheet(profile)}
           onChat={() => {
             // 先收主页再开聊天：反过来的话新窗口被压在主页底下，

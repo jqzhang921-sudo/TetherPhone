@@ -14,12 +14,19 @@ export type Settings = {
   /// 玻璃透明度，0 = 用默认。**这是"想要的观感"，不是最终值**——
   /// 壁纸算出来的下限会在 CSS 里用 max() 把它顶回去，拉到底也不会把字拉没。
   glassAlpha: number;
+  /// 桌面图标那层的浓度，0 = 用默认（44%）
+  iconAlpha: number;
+  /// 玻璃的模糊半径 px，0 = 用默认（20）。**质感就是它**——
+  /// 玻璃在平坦背景上看不出糊，全靠边和高光；有花纹时这个数才说了算。
+  glassBlur: number;
   /// 气泡样式 id，空 = 跟随主题
   bubbleStyle: string;
   userEmoji: string;
   /// 换头像的时间戳，0 = 没设过。**当刷新信号用**：settings 已经流到每个
   /// 要画头像的组件了，这个数一变，它们一起去重读那张图。
   userAvatarAt: number;
+  /// 自己主页那条横幅换过的时间戳。图存在 photos 表 `__banner___me__` 上。
+  userBannerAt: number;
   userSignature: string;
   /// 手动指定的天气城市。留空 = 自动定位。
   /// 有这个字段是因为按 IP 定的是**网络出口**，家宽常常落在省会甚至邻省。
@@ -36,6 +43,11 @@ export type Settings = {
   wallpaperPhotoId: string;
   /// 桌面上放哪些卡片，逗号分隔的 id。
   widgets: string;
+  /// 桌面每样东西摆在哪：`id:页,列,行` 用分号隔开。见 lib/os/layout.ts。
+  /// 空 = 全部自动落位。
+  layout: string;
+  /// 相册卡片上放哪几张。逗号分隔的照片 id，空 = 用最近收进相册的那几张。
+  photoWidget: string;
   /// 图标顺序，逗号分隔的 app id。**registry 里新增的会自动补在后面**——
   /// 加了新 app 不该因为老用户的顺序里没有它就消失。
   appOrder: string;
@@ -53,9 +65,12 @@ export const DEFAULT_SETTINGS: Settings = {
   wallpaperId: "dusk",
   userName: "",
   glassAlpha: 0,
+  iconAlpha: 0,
+  glassBlur: 0,
   bubbleStyle: "",
   userEmoji: "🌱",
   userAvatarAt: 0,
+  userBannerAt: 0,
   userSignature: "",
   weatherPlace: "",
   musicApiBase: "",
@@ -63,6 +78,8 @@ export const DEFAULT_SETTINGS: Settings = {
   musicBg: "cover",
   wallpaperPhotoId: "",
   widgets: "clock",
+  layout: "",
+  photoWidget: "",
   appOrder: "",
 };
 

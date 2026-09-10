@@ -101,9 +101,6 @@ export function ContactSheet({
             <span className="text-[17px] font-medium" style={{ color: "var(--ink)" }}>
               {displayName(draft)}
             </span>
-            <span className="text-[12px] tabular-nums" style={{ color: "var(--ink-faint)" }}>
-              {draft.phone}
-            </span>
           </div>
 
           <Row label="头像">

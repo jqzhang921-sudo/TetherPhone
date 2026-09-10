@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { loadMsgs, saveMsgs, newId, type Msg } from "@/lib/chat/store";
 import { displayName, type Contact } from "@/lib/os/contacts";
 import { dayLabel, loadDiary, type DiaryEntry } from "@/lib/diary/store";
@@ -44,6 +44,8 @@ function systemPrompt(
   locked: string,
   mem: MemoryTopic[],
   notes: Note[],
+  /// 上一条消息的时刻。null = 还没说过话。
+  lastAt: number | null,
 ) {
   const bits: string[] = [];
   if (c.name.trim()) bits.push(`你叫${c.name.trim()}。`);
@@ -81,7 +83,62 @@ function systemPrompt(
   // 它锁着的那几页。不给它看的话，它根本不知道有东西可开。
   if (locked) bits.push(locked);
 
+  // ⚠️ **时间必须放在最后一段。** 它每条消息都变，放前面会把前面所有内容的
+  // 前缀缓存整段打散——名字、人设、记忆、规矩全部重算。放末尾只作废它自己。
+  //
+  // ⚠️ 时间**不进消息正文**。给每条前面贴 `[14:32]` 的话，模型会学着也这么写，
+  // 时间戳就漏进它说的话里了。它真正需要的只有两件事：现在几点、
+  // 距上次说话隔了多久。
+  bits.push(nowLine(lastAt));
+
   return bits.join("\n");
+}
+
+/// 「现在几点」那一段。
+///
+/// **隔了多久比几点几分更有用**：模型据此才分得清「刚说完」和「昨天说的」。
+function nowLine(lastAt: number | null): string {
+  const now = new Date();
+  const w = "日一二三四五六"[now.getDay()];
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mm = String(now.getMinutes()).padStart(2, "0");
+  const bits = [
+    `现在是 ${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 星期${w} ${hh}:${mm}。`,
+  ];
+  if (lastAt) {
+    const min = Math.round((Date.now() - lastAt) / 60000);
+    const gap =
+      min < 2
+        ? "刚刚"
+        : min < 60
+          ? `${min} 分钟前`
+          : min < 60 * 24
+            ? `${Math.round(min / 60)} 小时前`
+            : `${Math.round(min / 60 / 24)} 天前`;
+    bits.push(`你们上一次说话是${gap}。`);
+  }
+  // 时间是背景，不是话题。不写这句它会张口就报时。
+  bits.push("知道时间是为了说话合时宜，不是为了报时——除非她问，别把时间说出来。");
+  return bits.join("");
+}
+
+const clock = (at: number) => {
+  const d = new Date(at);
+  return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+};
+
+/// 两条之间要不要插一条分隔，插什么。
+///
+/// **只在真的断开时插。** 每条都写日期就成了流水账，而分隔的意义正是
+/// 「这里断过」：换了一天，或者中间隔了半小时以上。
+function gapLabel(prev: number | undefined, at: number): string | null {
+  const d = new Date(at);
+  const day = `${d.getMonth() + 1}月${d.getDate()}日`;
+  const hm = clock(at);
+  if (prev === undefined) return `${day} ${hm}`;
+  const p = new Date(prev);
+  if (p.toDateString() !== d.toDateString()) return `${day} ${hm}`;
+  return at - prev >= 30 * 60_000 ? hm : null;
 }
 
 /// 待发区的一张。发送前还没落库，所以直接拿 Blob 显示。
@@ -107,11 +164,14 @@ export function ChatApp({
   contacts,
   settings,
   onOpenProfile,
+  onAddContact,
   openWith,
 }: {
   contacts: Contact[];
   settings: Settings;
   onOpenProfile: (c: Contact) => void;
+  /// 通讯录并进来了：**列表就是通讯录**，所以新建也归这儿。
+  onAddContact: () => void;
   /// 从主页「发消息」进来时，直接开这个人的会话，别把人扔回列表让他再点一次。
   openWith?: string | null;
 }) {
@@ -266,6 +326,8 @@ export function ChatApp({
         await lockedPages(contact.id),
         memory,
         notes,
+        // 「上一次说话」= 这次她开口之前的最后一条，不是刚发出去这条
+        msgs.at(-1)?.at ?? null,
       );
       const replyId = newId();
       let visible = "";
@@ -420,10 +482,24 @@ export function ChatApp({
         }}
       >
         <StatusBar />
-        <header className="px-5 pt-1 pb-3 shrink-0">
+        {/* ⚠️ **通讯录没了，这张列表就是通讯录。** 两个 app 列的是同一批人、
+            点进去做的是同一件事，分成两个只是让人多记一个入口。
+            所以新建也归这儿；点头像进主页，点别处进会话。 */}
+        <header className="px-5 pt-1 pb-3 shrink-0 flex items-center justify-between">
           <h1 className="text-[26px] font-semibold" style={{ color: "var(--ink)" }}>
             聊天
           </h1>
+          <button
+            onClick={onAddContact}
+            aria-label="新建联系人"
+            className="w-9 h-9 rounded-full grid place-items-center active:scale-90 transition-transform"
+            style={{ background: "color-mix(in oklab, var(--ink) 8%, transparent)" }}
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="var(--ink)"
+              strokeWidth="1.9" strokeLinecap="round">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
         </header>
         <div className="flex-1 min-h-0 overflow-y-auto no-bar px-3 pb-4">
           {contacts.map((c) => (
@@ -432,7 +508,15 @@ export function ChatApp({
               onClick={() => setOpenId(c.id)}
               className="w-full flex items-center gap-3 px-2 py-3 text-left active:opacity-60"
             >
-              <Avatar face={faceOf(c)} />
+              {/* 点头像进主页，点别处进会话——和真手机一样 */}
+              <span
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenProfile(c);
+                }}
+              >
+                <Avatar face={faceOf(c)} />
+              </span>
               <span className="min-w-0 flex-1">
                 <span className="block text-[15px] truncate" style={{ color: "var(--ink)" }}>
                   {displayName(c)}
@@ -508,51 +592,74 @@ export function ChatApp({
           </div>
         )}
 
-        {msgs.map((m) =>
-          m.role === "event" ? (
-            // 它没开口，只是有件事发生了。样式刻意和日期分割线同一档。
-            <div key={m.id} className="self-center px-6 py-1 text-[11px] text-center leading-relaxed"
-              style={{ color: "var(--ink-faint)" }}>
-              {m.content}
-            </div>
-          ) : (
-            <div key={m.id} className={`max-w-[78%] flex flex-col gap-1.5 ${m.role === "user" ? "self-end items-end" : "self-start items-start"}`}>
-              {!!m.photoIds?.length && (
-                <div className={`grid gap-1 ${m.photoIds.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
-                  {m.photoIds.map((id) => (
-                    <button key={id} onClick={() => photos[id] && setViewing(photos[id])}>
-                      <PhotoImg
-                        photo={photos[id]}
-                        className="rounded-[14px] object-cover w-full"
-                        style={{
-                          maxHeight: m.photoIds!.length > 1 ? 110 : 210,
-                          aspectRatio: m.photoIds!.length > 1 ? "1 / 1" : undefined,
-                        }}
-                      />
-                    </button>
-                  ))}
-                </div>
-              )}
-              {!!m.content && (
-                <div
-                  className="px-3.5 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap break-words"
-                  // 样式在 lib/os/bubbles.ts。每套都自己立住底，不靠透出壁纸成立。
-                  //
-                  // ⚠️ **说话那侧的下角收紧到 6px。** 四角全 20 的话，
-                  // 两三个字的消息宽高都只有四十来像素，20 就是它的半高——
-                  // 圆角互相接上，气泡变成一颗药丸；描边那套最明显，像个按钮。
-                  // 缺一个角既压住了这个形状，又顺带指出话是从哪边出来的。
-                  style={{
-                    borderRadius: m.role === "user" ? "20px 20px 6px 20px" : "20px 20px 20px 6px",
-                    ...(m.role === "user" ? bubble.me(contact.bubble) : bubble.them),
-                  }}
-                >
-                  {m.content}
-                </div>
-              )}
-            </div>
-          ),
-        )}
+        {msgs.map((m, i) => (
+          <Fragment key={m.id}>
+            {/* 跨天 / 隔了很久，插一条居中的分隔。**只在真的断开时插**——
+                每条都写日期就成了流水账，而分隔的意义正是「这里断过」。 */}
+            {gapLabel(msgs[i - 1]?.at, m.at) && (
+              <div
+                className="self-center px-4 py-1 text-[11px]"
+                style={{ color: "var(--ink-faint)" }}
+              >
+                {gapLabel(msgs[i - 1]?.at, m.at)}
+              </div>
+            )}
+            {m.role === "event" ? (
+              // 它没开口，只是有件事发生了。样式刻意和分隔线同一档。
+              <div
+                className="self-center px-6 py-1 text-[11px] text-center leading-relaxed"
+                style={{ color: "var(--ink-faint)" }}
+              >
+                {m.content}
+              </div>
+            ) : (
+              <div
+                className={`max-w-[78%] flex flex-col gap-1.5 ${
+                  m.role === "user" ? "self-end items-end" : "self-start items-start"
+                }`}
+              >
+                {!!m.photoIds?.length && (
+                  <div className={`grid gap-1 ${m.photoIds.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+                    {m.photoIds.map((id) => (
+                      <button key={id} onClick={() => photos[id] && setViewing(photos[id])}>
+                        <PhotoImg
+                          photo={photos[id]}
+                          className="rounded-[14px] object-cover w-full"
+                          style={{
+                            maxHeight: m.photoIds!.length > 1 ? 110 : 210,
+                            aspectRatio: m.photoIds!.length > 1 ? "1 / 1" : undefined,
+                          }}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {!!m.content && (
+                  <div
+                    className="px-3.5 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap break-words"
+                    // 样式在 lib/os/bubbles.ts。每套都自己立住底，不靠透出壁纸成立。
+                    //
+                    // ⚠️ **说话那侧的下角收紧到 6px。** 四角全 20 的话，
+                    // 两三个字的消息宽高都只有四十来像素，20 就是它的半高——
+                    // 圆角互相接上，气泡变成一颗药丸；描边那套最明显，像个按钮。
+                    // 缺一个角既压住了这个形状，又顺带指出话是从哪边出来的。
+                    style={{
+                      borderRadius: m.role === "user" ? "20px 20px 6px 20px" : "20px 20px 20px 6px",
+                      ...(m.role === "user" ? bubble.me(contact.bubble) : bubble.them),
+                    }}
+                  >
+                    {m.content}
+                  </div>
+                )}
+                {/* 发出去的时刻。挂在气泡外面、贴着说话那一侧——
+                    写进气泡里就成了正文的一部分，模型也会跟着学。 */}
+                <span className="text-[10px] px-1 -mt-0.5" style={{ color: "var(--ink-faint)" }}>
+                  {clock(m.at)}
+                </span>
+              </div>
+            )}
+          </Fragment>
+        ))}
 
         {busy && (
           <div className="self-start px-3.5 py-3"

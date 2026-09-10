@@ -9,6 +9,7 @@ import { Avatar } from "@/components/phone/avatar";
 import { PhotoPicker } from "@/components/photos/photo-picker";
 import { shrink } from "@/lib/photos/store";
 import { cropSquare, clearMeAvatar, saveMeAvatar, useMe } from "@/lib/os/avatar";
+import { saveContactImage, clearContactImage } from "@/lib/os/contact-image";
 
 const inputStyle: React.CSSProperties = {
   background: "color-mix(in oklab, var(--glass-tint) 88%, transparent)",
@@ -64,12 +65,15 @@ export function SettingsApp({
   contacts,
   onChange,
   onReloadAll,
+  onOpenMe,
 }: {
   settings: Settings;
   /// 只为「从相册选头像」用——相册是按联系人分的，得知道翻谁的
   contacts: Contact[];
   onChange: (patch: Partial<Settings>) => void;
   onReloadAll: () => void;
+  /// 看自己那张主页。**改在这儿，看在那儿**——和联系人一个规矩。
+  onOpenMe: () => void;
 }) {
   const me = useMe(settings);
   const [pickingFace, setPickingFace] = useState(false);
@@ -178,6 +182,54 @@ export function SettingsApp({
           onChange={(v) => onChange({ userSignature: v })}
           placeholder="挂在你主页上的一句话"
         />
+
+        <div>
+          <div className="text-[12px] pb-1.5" style={{ color: "var(--ink-faint)" }}>
+            主页横幅
+          </div>
+          <div className="flex gap-2">
+            <label
+              className="flex-1 rounded-xl py-2 text-[12px] text-center cursor-pointer"
+              style={{ background: "color-mix(in oklab, var(--glass-tint) 70%, transparent)", color: "var(--ink)" }}
+            >
+              自己传
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = "";
+                  if (!f) return;
+                  const { blob, w, h } = await shrink(f, 1200, 0.86);
+                  // 自己没有 contactId，用一个固定的
+                  await saveContactImage("banner", "__me__", blob, w, h);
+                  onChange({ userBannerAt: Date.now() });
+                }}
+              />
+            </label>
+            {settings.userBannerAt > 0 && (
+              <button
+                onClick={async () => {
+                  await clearContactImage("banner", "__me__");
+                  onChange({ userBannerAt: 0 });
+                }}
+                className="rounded-xl px-3 text-[12px]"
+                style={{ background: "color-mix(in oklab, var(--glass-tint) 70%, transparent)", color: "var(--ink-faint)" }}
+              >
+                去掉
+              </button>
+            )}
+          </div>
+        </div>
+
+        <button
+          onClick={onOpenMe}
+          className="rounded-2xl py-2.5 text-[14px]"
+          style={{ background: "color-mix(in oklab, var(--ink) 8%, transparent)", color: "var(--ink)" }}
+        >
+          看看我的主页
+        </button>
       </Group>
 
       <Group title="音乐">

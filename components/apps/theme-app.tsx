@@ -25,6 +25,72 @@ function Card({ title, hint, children }: { title: string; hint?: string; childre
   );
 }
 
+/// 一条滑杆。
+///
+/// ⚠️ **拖动时只改本地 state，松手才写设置。** 每移动一像素写一次
+/// localStorage 会把整棵树重渲染几十次，手感会变成一顿一顿的。
+///
+/// ⚠️ **显示的必须是实际生效的值。** 用户存了 30、但下限把它顶到 79 时，
+/// 眼睛看到的是 79——标签还写 30 就是在骗人。所以 `floorAt` 一起夹。
+function Slider({
+  value,
+  fallback,
+  min,
+  max,
+  unit,
+  onCommit,
+}: {
+  /// 0 = 没设过，用默认
+  value: number;
+  /// 没设过时滑杆停在哪
+  fallback: number;
+  min: number;
+  max: number;
+  unit: string;
+  onCommit: (v: number) => void;
+}) {
+  const [drag, setDrag] = useState<number | null>(null);
+  const picked = drag ?? value;
+  const shown = picked ? Math.max(picked, min) : null;
+  const commit = () => {
+    if (drag !== null) onCommit(Math.max(drag, min));
+    setDrag(null);
+  };
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-3">
+        <input
+          type="range"
+          min={min}
+          max={max}
+          value={shown ?? fallback}
+          onChange={(e) => setDrag(Number(e.target.value))}
+          onPointerUp={commit}
+          onPointerCancel={commit}
+          onKeyUp={commit}
+          className="flex-1"
+          style={{ accentColor: "var(--ink)" }}
+        />
+        <span className="text-[12px] tabular-nums w-14 text-right" style={{ color: "var(--ink-dim)" }}>
+          {shown === null ? "默认" : `${shown}${unit}`}
+        </span>
+      </div>
+      {shown !== null && (
+        <button
+          onClick={() => {
+            setDrag(null);
+            onCommit(0);
+          }}
+          className="self-start text-[12px]"
+          style={{ color: "var(--ink-faint)" }}
+        >
+          回到默认
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function ThemeApp({
   settings,
   onChange,
@@ -38,44 +104,37 @@ export function ThemeApp({
   floor: number;
   wallpaperUrl?: string;
 }) {
-  // 滑杆拖动时先只动本地，松手才写进设置——每移动一像素写一次 localStorage
-  // 会把整棵树重渲染几十次。
-  const [drag, setDrag] = useState<number | null>(null);
   const lowest = Math.max(20, Math.round(floor * 100));
-  const picked = drag ?? (settings.glassAlpha || 0);
-  /// ⚠️ 显示的必须是**实际生效**的那个数，不是用户存的那个。
-  /// 存了 30% 之后换一张下限 79% 的壁纸，眼睛看到的是 79%——
-  /// 标签还写 30% 就是在骗人。
-  const shown = picked ? Math.max(picked, lowest) : null;
+  /// 实际生效的玻璃浓度（用户设的和壁纸下限取大），预览要用真值
+  const live = settings.glassAlpha ? Math.max(settings.glassAlpha, lowest) : null;
 
-  /// 没拉过时滑杆停在哪。深色和浅色的默认厚度差 4 个点，写死一个数会对不上，
+  /// 没设过时滑杆停在哪。深浅两套的默认值不一样，写死一个数总有一边对不上，
   /// 直接问 CSS 要。
-  const [fallback, setFallback] = useState(50);
+  const [base, setBase] = useState({ alpha: 50, icon: 44, blur: 20 });
   const probe = useCallback((el: HTMLDivElement | null) => {
     const dev = el?.closest(".device");
     if (!dev) return;
-    const v = parseInt(getComputedStyle(dev).getPropertyValue("--glass-alpha"), 10);
-    if (Number.isFinite(v)) setFallback(v);
+    const cs = getComputedStyle(dev);
+    const n = (k: string, d: number) => {
+      const v = parseInt(cs.getPropertyValue(k), 10);
+      return Number.isFinite(v) ? v : d;
+    };
+    setBase({ alpha: n("--glass-alpha", 50), icon: n("--glass-icon-alpha", 44), blur: n("--glass-blur", 20) });
   }, []);
-
-  const commit = () => {
-    if (drag !== null) onChange({ glassAlpha: drag });
-    setDrag(null);
-  };
 
   return (
     <div ref={probe} className="flex-1 min-h-0 overflow-y-auto no-bar px-4 pb-6">
       <Card
         title="玻璃"
         hint={
-          shown === null
-            ? "现在用的是默认厚度。往左拉更通透。"
+          live === null
+            ? `现在用的是默认。往左拉更通透——这张壁纸最薄能到 ${lowest}%。`
             : `越往左越透。这张壁纸最薄只能到 ${lowest}%——再薄，压在上面的字就会在壁纸亮的地方看不清。`
         }
       >
-        {/* 预览：一小块真玻璃压在当前壁纸上，拖的时候就能看出效果 */}
+        {/* 预览：一块真玻璃、一个真图标，压在当前壁纸上，拖的时候就看得见 */}
         <div
-          className="rounded-2xl h-[92px] p-3 flex items-end"
+          className="rounded-2xl h-[104px] p-3 flex items-end gap-2.5"
           style={{
             ...(wallpaperUrl
               ? { backgroundImage: `url(${wallpaperUrl})`, backgroundSize: "cover", backgroundPosition: "center" }
@@ -85,51 +144,57 @@ export function ThemeApp({
                 }),
           }}
         >
-          <div
-            className="rounded-xl px-3 py-2 text-[13px]"
-            style={{
-              background: `color-mix(in oklab, var(--glass-tint) ${
-                shown === null ? "var(--glass-alpha)" : `${shown}%`
-              }, transparent)`,
-              backdropFilter: "blur(var(--glass-blur)) saturate(1.9)",
-              WebkitBackdropFilter: "blur(var(--glass-blur)) saturate(1.9)",
-              color: "var(--ink)",
-            }}
-          >
+          <div className="glass rounded-xl px-3 py-2 text-[13px]" style={{ color: "var(--ink)" }}>
             这行字要一直读得清
           </div>
+          <span className="glass-icon rounded-[14px] w-11 h-11 shrink-0" />
         </div>
 
-        <div className="flex items-center gap-3">
-          <input
-            type="range"
+        <div>
+          <div className="text-[12px] pb-1" style={{ color: "var(--ink-faint)" }}>
+            卡片和组件
+          </div>
+          <Slider
+            value={settings.glassAlpha}
+            fallback={base.alpha}
             min={lowest}
             max={92}
-            value={shown ?? fallback}
-            onChange={(e) => setDrag(Number(e.target.value))}
-            onPointerUp={commit}
-            onPointerCancel={commit}
-            onKeyUp={commit}
-            className="flex-1"
-            style={{ accentColor: "var(--ink)" }}
+            unit="%"
+            onCommit={(v) => onChange({ glassAlpha: v })}
           />
-          <span className="text-[12px] tabular-nums w-14 text-right" style={{ color: "var(--ink-dim)" }}>
-            {shown === null ? "默认" : `${shown}%`}
-          </span>
         </div>
 
-        {shown !== null && (
-          <button
-            onClick={() => {
-              setDrag(null);
-              onChange({ glassAlpha: 0 });
-            }}
-            className="self-start text-[12px]"
-            style={{ color: "var(--ink-faint)" }}
-          >
-            回到默认
-          </button>
-        )}
+        <div>
+          <div className="text-[12px] pb-1" style={{ color: "var(--ink-faint)" }}>
+            桌面图标
+          </div>
+          <Slider
+            value={settings.iconAlpha}
+            fallback={base.icon}
+            min={lowest}
+            max={92}
+            unit="%"
+            onCommit={(v) => onChange({ iconAlpha: v })}
+          />
+        </div>
+
+        <div>
+          <div className="text-[12px] pb-1" style={{ color: "var(--ink-faint)" }}>
+            磨砂的程度
+          </div>
+          <Slider
+            value={settings.glassBlur}
+            fallback={base.blur}
+            min={0}
+            max={40}
+            unit="px"
+            onCommit={(v) => onChange({ glassBlur: v })}
+          />
+          <p className="text-[11px] leading-relaxed pt-1.5" style={{ color: "var(--ink-faint)" }}>
+            只在壁纸有花纹的地方看得出来。压在一片平坦的颜色上，糊和不糊长得一样——
+            那时候撑起玻璃感的是边和顶上那道光，不是模糊。
+          </p>
+        </div>
       </Card>
 
       <Card title="气泡" hint="没挑的话就是「跟随主题」：你那侧用联系人的颜色，换个人聊天就换个色。">

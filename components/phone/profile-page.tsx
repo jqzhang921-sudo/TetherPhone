@@ -2,13 +2,12 @@
 import { useEffect, useState } from "react";
 import { StatusBar } from "./status-bar";
 import { Avatar } from "./avatar";
-import { faceOf } from "@/lib/os/avatar";
+import type { Face } from "@/lib/os/avatar";
 import { useContactImage } from "@/lib/os/contact-image";
 import { readImage } from "@/lib/music/tone";
 import { loadPosts, type Post } from "@/lib/moments/store";
 import { loadPhotos, type Photo } from "@/lib/photos/store";
 import { PhotoImg } from "@/components/photos/photo-img";
-import { displayName, type Contact } from "@/lib/os/contacts";
 
 /// 主页 = 看。资料卡 = 改。
 ///
@@ -67,17 +66,37 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+/// 这一页画谁。
+///
+/// ⚠️ **用户和联系人共用这一页，不做两套。** 两套的下场是加一个字段要改两处，
+/// 迟早分叉——而它们要展示的东西本来就是一样的：一张脸、一个名字、一句签名。
+/// 差别只在"能做什么"：联系人能发消息、能改资料；自己只能改自己。
+export type Who = {
+  id: string;
+  name: string;
+  realName?: string;
+  signature: string;
+  face: Face;
+  tint: string;
+  bannerAt?: number;
+  /// 一起听。只有联系人有。
+  songs?: number;
+  together?: number;
+};
+
 export function ProfilePage({
-  contact,
+  who,
   onEdit,
   onChat,
   onClose,
 }: {
-  contact: Contact;
+  who: Who;
   onEdit: () => void;
-  onChat: () => void;
+  /// 自己的主页没有「发消息」
+  onChat?: () => void;
   onClose: () => void;
 }) {
+  const contact = who;
   const banner = useContactImage("banner", contact.id, contact.bannerAt);
 
   /// ⚠️ **横幅那一条要按横幅自己的深浅翻。**
@@ -112,9 +131,8 @@ export function ProfilePage({
     void loadPhotos(contact.id).then((all) => setPhotos(all.filter((p) => p.saved).slice(0, 4)));
   }, [contact.id]);
 
-  const name = displayName(contact);
-  // 有备注时，本名降一档挂在下面——和真通讯录一样，你叫 TA 什么排在前面
-  const realName = contact.note.trim() && contact.name.trim() !== contact.note.trim() ? contact.name.trim() : "";
+  const name = contact.name;
+  const realName = contact.realName ?? "";
 
   return (
     <div
@@ -175,7 +193,7 @@ export function ProfilePage({
             className="rounded-full p-[3px] shrink-0"
             style={{ background: "color-mix(in oklab, var(--glass-tint) 92%, transparent)" }}
           >
-            <Avatar face={faceOf(contact)} size={82} />
+            <Avatar face={contact.face} size={82} />
           </span>
           <div className="min-w-0 flex-1 pb-1.5">
             <div className="text-[21px] font-semibold truncate" style={{ color: "var(--ink)" }}>
@@ -195,17 +213,18 @@ export function ProfilePage({
           </p>
         )}
 
-        <div className="mt-3">
-          <Row label="号码" value={<span className="tabular-nums">{contact.phone}</span>} />
-          <Row
-            label="一起听"
-            value={
-              contact.songs
-                ? `${contact.songs} 首 · ${span(contact.together ?? 0)}`
-                : "还没一起听过"
-            }
-          />
-        </div>
+        {onChat && (
+          <div className="mt-3">
+            <Row
+              label="一起听"
+              value={
+                contact.songs
+                  ? `${contact.songs} 首 · ${span(contact.together ?? 0)}`
+                  : "还没一起听过"
+              }
+            />
+          </div>
+        )}
 
         {photos.length > 0 && (
           <>
@@ -250,13 +269,15 @@ export function ProfilePage({
           </>
         )}
 
-        <button
-          onClick={onChat}
-          className="mt-6 w-full rounded-2xl py-3 text-[15px]"
-          style={{ background: contact.tint, color: "oklch(0.99 0 0)" }}
-        >
-          发消息
-        </button>
+        {onChat && (
+          <button
+            onClick={onChat}
+            className="mt-6 w-full rounded-2xl py-3 text-[15px]"
+            style={{ background: contact.tint, color: "oklch(0.99 0 0)" }}
+          >
+            发消息
+          </button>
+        )}
       </div>
     </div>
   );

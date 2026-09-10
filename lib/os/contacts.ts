@@ -31,8 +31,6 @@ export type Contact = {
   chatBgAt?: number;
   /// 换主页横幅的时间戳。同上，图在 photos 表（lib/os/contact-image.ts）。
   bannerAt?: number;
-  /// 虚拟号码。现在纯装饰，将来打电话用得上。
-  phone: string;
   signature: string;
   /// 进系统提示词。只写它是谁，别挂形容词——挂了模型就去演那个词。
   persona: string;
@@ -59,11 +57,6 @@ const TINTS = [
   "oklch(0.75 0.12 85)",
 ];
 
-/// 号码是假的，但要长得像真的——`138` 开头 + 8 位随机。
-const fakePhone = () =>
-  `138 ${String(Math.floor(Math.random() * 1e4)).padStart(4, "0")} ${String(
-    Math.floor(Math.random() * 1e4),
-  ).padStart(4, "0")}`;
 
 export function blankContact(seed?: Partial<Contact>): Contact {
   return {
@@ -72,7 +65,6 @@ export function blankContact(seed?: Partial<Contact>): Contact {
     note: "",
     emoji: "🌙",
     tint: TINTS[Math.floor(Math.random() * TINTS.length)],
-    phone: fakePhone(),
     signature: "",
     persona: "",
     model: "",

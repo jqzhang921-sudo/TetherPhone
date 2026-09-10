@@ -98,13 +98,6 @@ export const APPS: AppDef[] = [
     icon: <Icon><path d="M12 4.5a4 4 0 0 0-4 4v.4A3.2 3.2 0 0 0 6.4 15v.3A3.2 3.2 0 0 0 12 17.6z" /><path d="M12 4.5a4 4 0 0 1 4 4v.4A3.2 3.2 0 0 1 17.6 15v.3A3.2 3.2 0 0 1 12 17.6z" /><path d="M12 17.6V20" /></Icon>,
   },
   {
-    id: "contacts",
-    name: "通讯录",
-    tint: "oklch(0.73 0.11 200)",
-    ready: true,
-    icon: <Icon><rect x="5" y="3" width="14" height="18" rx="2.5" /><path d="M3 8h2M3 12h2M3 16h2" /><circle cx="12" cy="10" r="2.2" /><path d="M8.6 16.5a3.6 3.6 0 0 1 6.8 0" /></Icon>,
-  },
-  {
     id: "notes",
     name: "备忘录",
     tint: "oklch(0.80 0.12 95)",

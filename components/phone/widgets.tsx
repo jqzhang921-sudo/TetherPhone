@@ -13,13 +13,16 @@ import { faceOf, useMe } from "@/lib/os/avatar";
 
 export type WidgetId = "clock" | "weather" | "music" | "photos" | "notes";
 
-export const WIDGETS: { id: WidgetId; name: string; hint: string }[] = [
-  { id: "clock", name: "时钟", hint: "时间和日期" },
-  { id: "weather", name: "天气", hint: "现在几度、什么天" },
-  { id: "music", name: "一起听", hint: "两个人的头像和一起听过多少首" },
-  { id: "photos", name: "相册", hint: "最近收进来的几张" },
-  { id: "notes", name: "备忘录", hint: "板上还没做的几件事" },
+/// 占几格。桌面的格子是正方的，所以 2×2 就是正方形的卡。
+export const WIDGETS: { id: WidgetId; name: string; hint: string; w: number; h: number; options?: boolean }[] = [
+  { id: "clock", name: "时钟", hint: "时间和日期", w: 2, h: 2 },
+  { id: "weather", name: "天气", hint: "现在几度、什么天", w: 2, h: 2 },
+  { id: "music", name: "一起听", hint: "两个人的头像和一起听过多少首", w: 2, h: 2 },
+  { id: "photos", name: "相册", hint: "挑几张轮着放", w: 2, h: 2, options: true },
+  { id: "notes", name: "备忘录", hint: "板上还没做的几件事", w: 2, h: 2 },
 ];
+
+export const widgetById = (id: string) => WIDGETS.find((w) => w.id === id);
 
 type Props = {
   settings: Settings;
@@ -33,31 +36,28 @@ type Props = {
 /// Cleo 给的两张截图里每个组件都是这个结构——外面一个大圆角，
 /// 里面是一两个自己也有圆角的小块，名字在下面、和图标的名字同一档。
 ///
-/// ⚠️ **尺寸按格子走，不按内容走。** 小的就是 2 列见方（正好压住两个图标的位置），
-/// 宽的是 4 列、扁一些。内容多少都不改外形——一排组件高矮不齐是最显脏的，
-/// 而"内容驱动高度"迟早会不齐：天气拿到数据前后就差一行。
+/// ⚠️ **尺寸由格子定，不由内容定。** 卡片撑满分给它的那块地方，
+/// 内容多少都不改外形——一排组件高矮不齐是最显脏的，而"内容驱动高度"
+/// 迟早会不齐：天气拿到数据前后就差一行。
 function Card({
   app,
   onOpen,
   label,
-  wide = false,
   children,
 }: {
   app: string;
   onOpen: Props["onOpen"];
   label: string;
-  wide?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <div className={wide ? "col-span-4" : "col-span-2"}>
+    <div className="w-full h-full flex flex-col">
       <button
         onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
           onOpen(app, { x: r.left + r.width / 2, y: r.top + r.height / 2 });
         }}
-        className="glass rounded-[26px] w-full p-2.5 text-left flex flex-col active:scale-[0.97] transition-transform"
-        style={{ aspectRatio: wide ? "2.35 / 1" : "1 / 1" }}
+        className="glass rounded-[26px] w-full flex-1 min-h-0 p-2.5 text-left flex flex-col active:scale-[0.97] transition-transform"
       >
         {children}
       </button>
@@ -108,7 +108,7 @@ function Clock({ onOpen }: Props) {
     return () => clearInterval(t);
   }, []);
   // 占位也要占同样大的地方，否则时间一到位整排组件会跳一下
-  if (!now) return <div className="col-span-2 glass rounded-[26px]" style={{ aspectRatio: "1 / 1" }} />;
+  if (!now) return <div className="w-full h-full glass rounded-[26px]" />;
   return (
     <Card app="settings" onOpen={onOpen} label="时钟">
       <Inner className="flex-1 flex items-center">
@@ -224,30 +224,68 @@ function Music({ settings, contacts, onOpen }: Props) {
   );
 }
 
+/// 相册卡。**一次只放一张**，多张就轮着来。
+///
+/// 一张卡里塞四张缩略图，每张都小得看不出是什么——那不是相册是马赛克。
+/// 一次一张才看得见内容，也才像"摆在桌上的一张照片"。
 function Photos({ settings, contacts, onOpen }: Props) {
   const [rows, setRows] = useState<Photo[]>([]);
+  const [at, setAt] = useState(0);
+
   useEffect(() => {
     const c = contacts.find((x) => x.id === settings.togetherWith) ?? contacts[0];
     if (!c) return;
-    // 方卡装四张正好。多了每张都小得看不出是什么，那就不是相册是马赛克
-    void loadPhotos(c.id).then((all) => setRows(all.filter((x) => x.saved).slice(0, 4)));
-  }, [contacts, settings.togetherWith]);
+    const picked = settings.photoWidget.split(",").map((x) => x.trim()).filter(Boolean);
+    void loadPhotos(c.id).then((all) => {
+      const saved = all.filter((x) => x.saved);
+      // 挑过就按挑的来，**并且按她挑的顺序**；没挑过就用最近收进来的几张
+      const use = picked.length
+        ? picked.map((id) => saved.find((p) => p.id === id)).filter((p): p is Photo => !!p)
+        : saved.slice(0, 6);
+      setRows(use);
+      setAt(0);
+    });
+  }, [contacts, settings.togetherWith, settings.photoWidget]);
 
+  // 只有一张就别转。定时器空转不为难谁，但会让人以为它随时会变。
+  useEffect(() => {
+    if (rows.length < 2) return;
+    const t = setInterval(() => setAt((i) => (i + 1) % rows.length), 8000);
+    return () => clearInterval(t);
+  }, [rows.length]);
+
+  const cur = rows[at];
   return (
     <Card app="photos" onOpen={onOpen} label="相册">
-      <Inner className="flex-1 min-h-0" style={rows.length ? { padding: 6 } : undefined}>
-        {rows.length ? (
-          <div className="grid grid-cols-2 gap-1 h-full">
-            {rows.map((r) => (
-              <PhotoImg key={r.id} photo={r} className="w-full h-full rounded-[9px] object-cover" />
-            ))}
-          </div>
+      <Inner className="flex-1 min-h-0 relative overflow-hidden" style={{ padding: 0 }}>
+        {cur ? (
+          rows.map((r, i) => (
+            // 全部铺着、靠透明度交替。**换的时候两张都在**，
+            // 不然中间会闪一下底色，像卡住了。
+            <PhotoImg
+              key={r.id}
+              photo={r}
+              className="absolute inset-0 w-full h-full object-cover"
+              style={{ opacity: i === at ? 1 : 0, transition: "opacity 700ms ease" }}
+            />
+          ))
         ) : (
           <div className="h-full grid place-items-center">
             <span className="text-[12px]" style={{ color: "var(--ink-dim)" }}>
               相册还空着
             </span>
           </div>
+        )}
+        {rows.length > 1 && (
+          <span className="absolute bottom-1.5 left-0 right-0 flex justify-center gap-1">
+            {rows.map((r, i) => (
+              <span
+                key={r.id}
+                className="w-1 h-1 rounded-full"
+                style={{ background: "oklch(1 0 0)", opacity: i === at ? 0.95 : 0.4 }}
+              />
+            ))}
+          </span>
         )}
       </Inner>
     </Card>

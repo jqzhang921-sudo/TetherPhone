@@ -12,6 +12,7 @@ export function PhotoPicker({
   picked,
   onDone,
   onPick,
+  doneLabel,
   onClose,
 }: {
   contactId: string;
@@ -20,6 +21,8 @@ export function PhotoPicker({
   /// 传了它就是单选：点一张立刻回调并关掉，不出下面那个确认按钮。
   /// 挑头像是"挑一张"，多选的编号和"贴 N 张"在那儿是多余的。
   onPick?: (p: Photo) => void;
+  /// 底下那个按钮怎么说。默认「贴 N 张」——贴进日记/动态是它最早的用途。
+  doneLabel?: (n: number) => string;
   onClose: () => void;
 }) {
   const [rows, setRows] = useState<Photo[]>([]);
@@ -110,7 +113,7 @@ export function PhotoPicker({
             className="w-full rounded-2xl py-3 text-[15px]"
             style={{ background: "oklch(0.62 0.14 250)", color: "oklch(0.99 0 0)" }}
           >
-            {sel.length ? `贴 ${sel.length} 张` : "不贴了"}
+            {doneLabel ? doneLabel(sel.length) : sel.length ? `贴 ${sel.length} 张` : "不贴了"}
           </button>
         </div>
       </div>
