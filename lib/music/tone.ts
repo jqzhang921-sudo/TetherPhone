@@ -128,3 +128,106 @@ export function skyOf(t: Tone | null): string {
     ? `radial-gradient(120% 70% at 50% 12%, oklch(0.34 ${c.toFixed(3)} ${t.hue.toFixed(0)}) 0%, transparent 62%), linear-gradient(180deg, oklch(0.22 ${(c * 0.7).toFixed(3)} ${t.hue.toFixed(0)}) 0%, oklch(0.13 ${(c * 0.4).toFixed(3)} ${t.hue.toFixed(0)}) 100%)`
     : `radial-gradient(120% 70% at 50% 12%, oklch(0.92 ${c.toFixed(3)} ${t.hue.toFixed(0)}) 0%, transparent 62%), linear-gradient(180deg, oklch(0.88 ${(c * 0.7).toFixed(3)} ${t.hue.toFixed(0)}) 0%, oklch(0.95 ${(c * 0.3).toFixed(3)} ${t.hue.toFixed(0)}) 100%)`;
 }
+
+/// 这张图上，玻璃最薄能到多薄还保证字读得了。
+///
+/// 整条搬自 phone-ai-assistant 那次的教训，有两个反直觉的点：
+///
+/// ⚠️ **「图有多花」和「图能有多亮」是两件事。** 亮度标准差（busyness）量的是花不花，
+/// 不能拿来定可读性：一张黑底骷髅壁纸绝大多数像素是黑的、标准差只有 0.05，
+/// 可它有一块接近纯白的高光——一小块高光推不高标准差，却足以让一整行字消失。
+/// 所以要单独看**亮端和暗端**。
+///
+/// ⚠️ **峰值取「第三亮」而不是 p95。** 32×32 的每个采样点已经是原图一整块的平均值，
+/// 那个尺度约等于一张卡片压住的面积；p95（1024 个里第 51 亮）完全够不着，
+/// 实测算出来的 alpha 和"不管亮端"一模一样。
+///
+/// 注意这是**保守**估计：backdrop 的模糊会把高光和周围拉平，实际比这更容易读。
+function grayOf(lum: number) {
+  // 相对亮度反解成灰度 sRGB。逐通道不可逆，但灰度是标量问题，这样够用。
+  const inv = (v: number) => (v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055);
+  return Math.max(0, Math.min(255, inv(Math.max(0, Math.min(1, lum))) * 255));
+}
+const lumOfGray = (g: number) => {
+  const x = g / 255;
+  return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+};
+const ratio = (a: number, b: number) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+
+export function minGlassAlpha(pixels: Uint8ClampedArray, dark: boolean): number {
+  const lums: number[] = [];
+  for (let i = 0; i < pixels.length; i += 4) {
+    if (pixels[i + 3] < 128) continue;
+    const c = (v: number) => {
+      const x = v / 255;
+      return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+    };
+    lums.push(0.2126 * c(pixels[i]) + 0.7152 * c(pixels[i + 1]) + 0.0722 * c(pixels[i + 2]));
+  }
+  if (lums.length < 8) return dark ? 0.46 : 0.5;
+  lums.sort((a, b) => a - b);
+  const trough = lums[2];
+  const peak = lums[lums.length - 3];
+
+  // 玻璃本体和字的颜色（和 globals.css 里那两套对齐）
+  const tint = dark ? lumOfGray(74) : 1;
+  const ink = dark ? 0.9 : 0.042;
+
+  const ok = (a: number) =>
+    [peak, trough].every((bg) => {
+      const out = lumOfGray(grayOf(tint) * a + grayOf(bg) * (1 - a));
+      return ratio(ink, out) >= 4.5;
+    });
+
+  // 二分求「还能读」的最小 alpha。够不着 4.5 就退回一个保守值，
+  // **不要为了通透牺牲能不能读**。
+  let lo = 0.2;
+  let hi = 0.95;
+  if (!ok(hi)) return hi;
+  for (let i = 0; i < 14; i++) {
+    const mid = (lo + hi) / 2;
+    if (ok(mid)) hi = mid;
+    else lo = mid;
+  }
+  return Math.round(hi * 100) / 100;
+}
+
+/// 一次跑完：取色 + 算玻璃下限。
+///
+/// ⚠️ **必须按 `background-size: cover` 的裁法取样，不能整张图缩进方画布。**
+/// 屏幕是竖的、图常常是横的，cover 会把左右两边切掉。整张图取样的话，
+/// 一块被切掉、永远不出现在屏幕上的高光照样会把玻璃顶厚——玻璃为一块
+/// 谁也看不见的白斑变闷，还找不出原因。
+export function readImage(url: string, aspect = 9 / 19.5): Promise<{ tone: Tone; minAlpha: number } | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const c = document.createElement("canvas");
+        c.width = c.height = 32;
+        const ctx = c.getContext("2d", { willReadFrequently: true });
+        if (!ctx) return resolve(null);
+
+        // cover：按屏幕的宽高比从原图中间切一块出来，再缩成 32×32。
+        // 方画布会把这块拉变形，无所谓——我们只统计亮度，不看形状。
+        const iw = img.naturalWidth || 1;
+        const ih = img.naturalHeight || 1;
+        let sw = iw;
+        let sh = iw / aspect;
+        if (sh > ih) {
+          sh = ih;
+          sw = ih * aspect;
+        }
+        ctx.drawImage(img, (iw - sw) / 2, (ih - sh) / 2, sw, sh, 0, 0, 32, 32);
+
+        const px = ctx.getImageData(0, 0, 32, 32).data;
+        const tone = toneOf(px);
+        resolve({ tone, minAlpha: minGlassAlpha(px, tone.dark) });
+      } catch {
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}

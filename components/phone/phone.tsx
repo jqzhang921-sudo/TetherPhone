@@ -20,7 +20,7 @@ import { PlaceholderApp } from "@/components/apps/placeholder-app";
 import { appById } from "@/lib/apps/registry";
 import { wallpaperById } from "@/lib/os/wallpapers";
 import { getAll } from "@/lib/db/idb";
-import { toneFromImage } from "@/lib/music/tone";
+import { readImage } from "@/lib/music/tone";
 import type { Photo } from "@/lib/photos/store";
 import {
   blankContact,
@@ -159,7 +159,7 @@ export function Phone() {
   /// ⚠️ **深浅要从图里算，不能让人自己选。** 她选错了整页字就没法看，
   /// 而且换一张就得重选一次。用和封面取色同一套（WCAG 相对亮度 0.179 那道门槛，
   /// 不是 OKLab 的 L——两者不是一回事）。
-  const [custom, setCustom] = useState<{ url: string; dark: boolean } | null>(null);
+  const [custom, setCustom] = useState<{ url: string; dark: boolean; alpha: number } | null>(null);
   useEffect(() => {
     const id = settings.wallpaperPhotoId;
     if (!id) {
@@ -173,9 +173,17 @@ export function Phone() {
       const hit = rows.find((r) => r.id === id);
       if (!hit?.blob || !alive) return;
       url = URL.createObjectURL(hit.blob);
-      const t = await toneFromImage(url);
-      if (alive) setCustom({ url, dark: t?.dark ?? true });
-      else URL.revokeObjectURL(url);
+      // 用机身的真实宽高比，别写死——改了 --phone-w/h 这里要跟着走
+      const box = device.current;
+      const r = await readImage(
+        url,
+        box && box.offsetHeight ? box.offsetWidth / box.offsetHeight : undefined,
+      );
+      if (alive) {
+        // 存的是这张图**要求的下限**，不是最终值。最终值在 CSS 里
+        // 由 max(默认, 下限) 决定——平坦的壁纸下限低于默认，就什么都不改。
+        setCustom({ url, dark: r?.tone.dark ?? true, alpha: r?.minAlpha ?? 0 });
+      } else URL.revokeObjectURL(url);
     })();
     return () => {
       alive = false;
@@ -251,6 +259,9 @@ export function Phone() {
               backgroundImage: `url(${custom.url})`,
               backgroundSize: "cover",
               backgroundPosition: "center",
+              // 这张图算出来的下限，交给 CSS 的 max() 去顶
+              ["--glass-floor" as string]: `${Math.round(custom.alpha * 100)}%`,
+              ["--glass-floor-strong" as string]: `${Math.min(92, Math.round(custom.alpha * 100) + 16)}%`,
             }
           : { background: wallpaper.css }
       }

@@ -8,8 +8,10 @@
 
    1. 浅底靠阴影不靠描边，深底不画阴影靠一道暖白亮边。
       两边用同一套 = 浅底上白描白等于没画，暗底上黑影看不见。
-   2. 高 alpha + 小模糊是一对。原来靠大模糊兼职撑可读性，
-      结果背景糊成一片灰，选什么壁纸都一样。
+   2. 高 alpha + 小模糊是一对，但**这条是有下限的、不是越高越好**。
+      原来（44px 模糊）靠大模糊兼职撑可读性，背景糊成一片灰、选什么壁纸都一样；
+      现在往回放通透一点（alpha 降、模糊 20px），**代价由第 3 条兜着**：
+      不是靠"alpha 够高所以肯定能读"，是按壁纸算出一个真的能读的下限。
    3. 承载文字的表面必须自己保证对比度，不能靠"透出底下的颜色"成立
       —— 底下换成照片就全废。
 
@@ -46,9 +48,9 @@
   --ink-faint: oklch(0.58 0.01 60);
 
   --glass-tint: oklch(1 0 0);
-  --glass-alpha: 62%;
-  --glass-alpha-strong: 78%;
-  --glass-blur: 16px;
+  --glass-alpha: 50%;
+  --glass-alpha-strong: 68%;
+  --glass-blur: 20px;
 
   /* 浅底：不画描边，靠阴影把卡片从背景里托起来 */
   --glass-edge: transparent;
@@ -62,9 +64,9 @@
   --ink-faint: oklch(0.66 0.01 80);
 
   --glass-tint: oklch(0.28 0.012 70);
-  --glass-alpha: 58%;
-  --glass-alpha-strong: 72%;
-  --glass-blur: 16px;
+  --glass-alpha: 46%;
+  --glass-alpha-strong: 64%;
+  --glass-blur: 20px;
 
   /* 深底：黑影看不见，靠一道暖白亮边划出卡片的界 */
   --glass-edge: oklch(1 0 0 / 0.14);
@@ -89,28 +91,39 @@ body {
 
 /* ── 玻璃本体 ───────────────────────────────────────────────── */
 
+/* ⚠️ --glass-floor 是下限，不是设定值。
+   自定义壁纸会按图算出「玻璃最薄能到多薄还读得了字」塞进这个变量，
+   用 max() 往上顶。写成 max() 而不是让 JS 直接改 --glass-alpha，
+   是因为默认值该只有这里一份：JS 里再抄一遍，改这里就会悄悄失效。
+
+   ⚠️ 顺带记两条写 CSS 注释的坑，一晚上踩了两次：
+   1. CSS 没有双斜杠行注释，只有这种块注释。照着 .ts 的习惯写了三行
+      双斜杠，紧跟其后的 .glass 整条规则被吞掉，玻璃全变透明。
+   2. 注释里不能出现星号加斜杠，哪怕包在反引号里——它会把注释提前闭合。
+   两次都不报错不亮红，只是背景没了，看起来像 max() 不兼容。
+   已实测：max() 在 color-mix() 里四种写法全都解析正常。 */
 .glass {
-  background: color-mix(in oklab, var(--glass-tint) var(--glass-alpha), transparent);
-  backdrop-filter: blur(var(--glass-blur)) saturate(1.7);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.7);
+  background: color-mix(in oklab, var(--glass-tint) max(var(--glass-alpha), var(--glass-floor, 0%)), transparent);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.9);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.9);
   border: 1px solid var(--glass-edge);
   box-shadow: var(--glass-shadow);
 }
 
 /* 要压住文字的那种，透明度再高一档 */
 .glass-strong {
-  background: color-mix(in oklab, var(--glass-tint) var(--glass-alpha-strong), transparent);
-  backdrop-filter: blur(var(--glass-blur)) saturate(1.7);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.7);
+  background: color-mix(in oklab, var(--glass-tint) max(var(--glass-alpha-strong), var(--glass-floor-strong, 0%)), transparent);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.9);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.9);
   border: 1px solid var(--glass-edge);
   box-shadow: var(--glass-shadow);
 }
 
 /* 图标那种小方块：模糊更小，省得十几个同屏时糊成一片 */
 .glass-icon {
-  background: color-mix(in oklab, var(--glass-tint) 55%, transparent);
-  backdrop-filter: blur(10px) saturate(1.8);
-  -webkit-backdrop-filter: blur(10px) saturate(1.8);
+  background: color-mix(in oklab, var(--glass-tint) max(44%, var(--glass-floor, 0%)), transparent);
+  backdrop-filter: blur(14px) saturate(2);
+  -webkit-backdrop-filter: blur(14px) saturate(2);
   border: 1px solid var(--glass-edge);
   box-shadow: var(--glass-shadow);
 }
