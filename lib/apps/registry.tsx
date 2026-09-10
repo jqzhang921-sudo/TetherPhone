@@ -54,6 +54,7 @@ export const APPS: AppDef[] = [
     name: "相册",
     tint: "oklch(0.76 0.13 150)",
     dock: true,
+    ready: true,
     icon: <Icon><rect x="3" y="5" width="18" height="14" rx="3" /><circle cx="8.5" cy="10" r="1.5" /><path d="M4 17l4.5-4.5a2 2 0 0 1 2.8 0L20 21" /></Icon>,
   },
   {

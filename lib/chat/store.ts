@@ -12,6 +12,10 @@ export type Msg = {
   contactId: string;
   role: Role;
   content: string;
+  /// 图只存 id，图本身在 photos 表里（lib/photos/store.ts）。
+  /// 同一张图可能同时出现在聊天、相册、日记里，各存一份的话
+  /// 改一处得改三处、删一处剩两份孤儿。
+  photoIds?: string[];
   at: number;
 };
 

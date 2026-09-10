@@ -19,6 +19,8 @@ export type DiaryEntry = {
   /// 私密 = 对方看不见。**公开是一个动作，不只是一个开关**——
   /// 公开时会在聊天里落下一行，见 diary-app 的公开按钮。
   secret: boolean;
+  /// 贴上去的图。只存 id，图在 photos 表里。
+  photoIds?: string[];
   at: number;
 };
 

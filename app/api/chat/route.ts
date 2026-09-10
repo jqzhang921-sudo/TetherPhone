@@ -10,12 +10,18 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/// `content` 可以是一段字，也可以是 OpenAI 那套多模态数组
+/// （`[{type:"text"...},{type:"image_url"...}]`）。这里**原样透传，不做判断**。
+///
+/// ⚠️ 刻意不去猜「这个模型能不能看图」然后把图悄悄丢掉。按 provider 名字猜
+/// 能力是错的——一个 OpenAI 兼容、模型也支持识图的自定义端点会被判成不能收图，
+/// 图被静默丢弃且查不出原因。宁可原样发过去让上游报错：报错看得见，静默丢弃看不见。
 type Body = {
   apiBase?: string;
   apiKey?: string;
   model?: string;
   system?: string;
-  messages?: { role: string; content: string }[];
+  messages?: { role: string; content: string | unknown[] }[];
 };
 
 export async function POST(req: Request) {

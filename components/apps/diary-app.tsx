@@ -14,6 +14,9 @@ import {
   type PaperRule,
 } from "@/lib/diary/store";
 import { handInk } from "@/lib/paper";
+import { loadPhotos, type Photo } from "@/lib/photos/store";
+import { PhotoImg } from "@/components/photos/photo-img";
+import { PhotoPicker } from "@/components/photos/photo-picker";
 import { loadMsgs, newId, saveMsgs, type Msg } from "@/lib/chat/store";
 import { displayName, type Contact } from "@/lib/os/contacts";
 import type { Settings } from "@/lib/os/settings";
@@ -99,6 +102,8 @@ export function DiaryApp({
   const [draft, setDraft] = useState<DiaryEntry | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<Record<string, Photo>>({});
+  const [picking, setPicking] = useState(false);
 
   const contact = contacts.find((c) => c.id === who) ?? contacts[0] ?? null;
 
@@ -109,7 +114,9 @@ export function DiaryApp({
   }, [contacts, who]);
 
   useEffect(() => {
-    if (who) void refresh(who);
+    if (!who) return;
+    void refresh(who);
+    void loadPhotos(who).then((all) => setPhotos(Object.fromEntries(all.map((p) => [p.id, p]))));
   }, [who]);
 
   if (!contact) {
@@ -150,14 +157,29 @@ export function DiaryApp({
             className="h-full rounded-2xl p-5 overflow-hidden"
             style={{ ...paperStyle(draft.paperTint, draft.paperRule), boxShadow: "0 8px 28px oklch(0 0 0 / 0.18)" }}
           >
-            <textarea
-              autoFocus
-              value={draft.text}
-              onChange={(e) => setDraft({ ...draft, text: e.target.value })}
-              placeholder="今天…"
-              className="w-full h-full bg-transparent outline-none resize-none text-[19px]"
-              style={handInk}
-            />
+            <div className="h-full flex flex-col">
+              <textarea
+                autoFocus
+                value={draft.text}
+                onChange={(e) => setDraft({ ...draft, text: e.target.value })}
+                placeholder="今天…"
+                className="flex-1 min-h-0 w-full bg-transparent outline-none resize-none text-[19px]"
+                style={handInk}
+              />
+              {!!draft.photoIds?.length && (
+                <div className="shrink-0 flex gap-2 pt-2 overflow-x-auto no-bar">
+                  {draft.photoIds.map((id) => (
+                    <PhotoImg
+                      key={id}
+                      photo={photos[id]}
+                      className="w-16 h-16 rounded-sm object-cover shrink-0"
+                      // 贴纸的样子：白边 + 一点点歪，像真的粘上去的
+                      style={{ border: "3px solid oklch(0.99 0 0)", boxShadow: "0 2px 8px oklch(0 0 0 / 0.2)", transform: `rotate(${(id.charCodeAt(0) % 7) - 3}deg)` }}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -194,9 +216,17 @@ export function DiaryApp({
             ))}
           </div>
 
+          <div className="flex items-center gap-4">
+          <button
+            onClick={() => setPicking(true)}
+            className="text-[12px]"
+            style={{ color: "var(--ink-faint)" }}
+          >
+            贴图{draft.photoIds?.length ? ` · ${draft.photoIds.length}` : ""}
+          </button>
           <button
             onClick={() => setDraft({ ...draft, secret: !draft.secret })}
-            className="flex items-center gap-2 text-[12px] self-start"
+            className="flex items-center gap-2 text-[12px]"
             style={{ color: draft.secret ? "var(--ink)" : "var(--ink-faint)" }}
           >
             <Lock />
@@ -204,7 +234,17 @@ export function DiaryApp({
               ? `只有你看得见，${displayName(contact)}读不到`
               : `${displayName(contact)}能读到这篇`}
           </button>
+          </div>
         </div>
+
+        {picking && (
+          <PhotoPicker
+            contactId={contact.id}
+            picked={draft.photoIds ?? []}
+            onDone={(ids) => setDraft({ ...draft, photoIds: ids.length ? ids : undefined })}
+            onClose={() => setPicking(false)}
+          />
+        )}
       </div>
     );
   }
@@ -244,6 +284,18 @@ export function DiaryApp({
             <p className="text-[19px] whitespace-pre-wrap" style={handInk}>
               {reading.text}
             </p>
+            {!!reading.photoIds?.length && (
+              <div className="flex flex-wrap gap-3 pt-5">
+                {reading.photoIds.map((id) => (
+                  <PhotoImg
+                    key={id}
+                    photo={photos[id]}
+                    className="w-28 h-28 rounded-sm object-cover"
+                    style={{ border: "5px solid oklch(0.99 0 0)", boxShadow: "0 3px 12px oklch(0 0 0 / 0.22)", transform: `rotate(${(id.charCodeAt(0) % 7) - 3}deg)` }}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
