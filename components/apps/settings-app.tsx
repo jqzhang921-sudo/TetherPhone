@@ -121,6 +121,14 @@ export function SettingsApp({
           把地址钉死——否则等于让任何人指使你的服务器去访问任意地址，包括内网。
           （部署环境下内网地址默认已经挡了。）
         </p>
+        <p className="text-[11px] leading-relaxed" style={{ color: "var(--ink-faint)" }}>
+          <b style={{ color: "var(--ink-dim)" }}>要听 VIP 的完整版得登录。</b>
+          登录信息**故意不放在这儿**——它等于你的账号，放浏览器里会跟着「导出备份」
+          跑进那个文件。跑一次
+          <code> node tools/music-login.mjs </code>
+          扫个码就行（不用输密码），它只写进服务器的
+          <code> .env.local</code>，然后重启一下服务。
+        </p>
       </Group>
 
       <Group title="壁纸">

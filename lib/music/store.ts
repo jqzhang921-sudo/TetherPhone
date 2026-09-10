@@ -76,7 +76,7 @@ export async function search(base: string, q: string): Promise<Found[]> {
 export async function playUrl(
   base: string,
   songId: string,
-): Promise<{ url: string; trial: boolean }> {
+): Promise<{ url: string; trial: boolean; loggedIn: boolean }> {
   // 先问一次拿到「是不是只有试听」这个信息——它决定界面上说什么话。
   const r = await fetch(
     `/api/music?op=url&base=${encodeURIComponent(base)}&id=${encodeURIComponent(songId)}`,
@@ -86,6 +86,7 @@ export async function playUrl(
   return {
     url: `/api/music?op=stream&base=${encodeURIComponent(base)}&id=${encodeURIComponent(songId)}`,
     trial: !!j.trial,
+    loggedIn: !!j.loggedIn,
   };
 }
 

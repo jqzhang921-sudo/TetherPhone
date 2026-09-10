@@ -62,6 +62,7 @@ components/
   apps/               各个入口的内容
 tools/
   slice-font.py       把中文字体切成 unicode-range 分片。换字体重跑它
+  music-login.mjs     网易云扫码登录，把 cookie 写进 .env.local（不用输密码）
   fonts/              字体源文件（不对外服务）
 lib/
   db/idb.ts           IndexedDB 层。除 contacts 外每张表都按 contactId 建了索引
@@ -97,6 +98,11 @@ lib/
 - **canvas 渐变要在 transform 之后建**，否则画面整片空白（不报错）。
 - **量 canvas 尺寸用 `offsetWidth`**，`getBoundingClientRect()` 返回的是变换后的
   大小——app 打开动画起手是 `scale(0.16)`，画布会按 16% 建，而且再也不纠正。
+- **音乐的登录信息只放服务器环境变量**，不进浏览器。cookie 等于账号钥匙：
+  放 localStorage 会跟着「导出备份」跑进那个 JSON，放 URL 参数会落进请求日志。
+  取它用 `node tools/music-login.mjs`（扫码，不用输密码）。
+  取音频字节时**不带 cookie**——那是 CDN 的地址不是 API 的，签名已经在 url 里，
+  往 CDN 发账号 cookie 是白送凭据。
 - **在线音频经服务端转发**（`/api/music?op=stream`）。浏览器直连音乐 CDN 真机上
   拿不到（code 4「no supported sources」，换 https / Referer / UA 都一样，
   而服务端 fetch 是 206 audio/mpeg）。转发之后同源、不涉及 CORS 和混合内容、

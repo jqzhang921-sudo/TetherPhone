@@ -49,8 +49,17 @@ type Song = {
   album?: { picUrl?: string };
 };
 
+/// 登录态。
+///
+/// ⚠️ **只从环境变量来，不收前端传的。** cookie 等于账号的钥匙：
+/// 放浏览器里会跟着「导出备份」跑进那个 JSON，放 URL 参数里会落进请求日志。
+/// 所以它只待在服务器进程里。拿它的办法见 `tools/music-login.mjs`（扫码，不用输密码）。
+const COOKIE = process.env.MUSIC_COOKIE?.trim();
+
+const auth = (): HeadersInit => (COOKIE ? { Cookie: COOKIE } : {});
+
 const grab = async (url: string) => {
-  const r = await fetch(url, { cache: "no-store" });
+  const r = await fetch(url, { cache: "no-store", headers: auth() });
   if (!r.ok) throw new Error(`音源返回 ${r.status}`);
   return r.json();
 };
@@ -88,7 +97,8 @@ export async function GET(req: Request) {
     if (op === "url") {
       const id = p.get("id");
       if (!id) return Response.json({ error: "没给 id" }, { status: 400 });
-      const j = await grab(`${base}/song/url/v1?id=${encodeURIComponent(id)}&level=standard`);
+      const level = COOKIE ? "exhigh" : "standard";
+      const j = await grab(`${base}/song/url/v1?id=${encodeURIComponent(id)}&level=${level}`);
       const d = j?.data?.[0];
       if (!d?.url) {
         // 拿不到就说清楚**为什么**拿不到。返回一句「失败」等于让人对着猜。
@@ -98,7 +108,13 @@ export async function GET(req: Request) {
       // 当成整首返回——播到一半突然没了，人完全不知道为什么。实测 16 首里
       // 有 7 首是这种（fee=1 的 VIP 专享，不登录一律只给试听）。
       // 所以要把这件事**带出去**，让界面说人话。
-      return Response.json({ url: d.url, br: d.br, trial: !!d.freeTrialInfo });
+      return Response.json({
+        url: d.url,
+        br: d.br,
+        trial: !!d.freeTrialInfo,
+        // 前端要用它决定说「要登录有会员的账号」还是「你的账号没这首的会员」
+        loggedIn: !!COOKIE,
+      });
     }
 
     if (op === "stream") {
@@ -113,13 +129,17 @@ export async function GET(req: Request) {
       // 地址每次现取所以也不会过期。**代价是音频流量走这台服务器。**
       const id = p.get("id");
       if (!id) return new Response("没给 id", { status: 400 });
-      const j = await grab(`${base}/song/url/v1?id=${encodeURIComponent(id)}&level=standard`);
+      // 登录了就要无损/极高，没登录要了也白要
+      const level = COOKIE ? "exhigh" : "standard";
+      const j = await grab(`${base}/song/url/v1?id=${encodeURIComponent(id)}&level=${level}`);
       const src = j?.data?.[0]?.url;
       if (!src) return new Response("这首拿不到音源", { status: 404 });
 
       // ⚠️ Range 必须原样带上去，否则播放器**拖不动进度条**
       // ——没有 206 就没法 seek，长音频还会整首等下完。
       const range = req.headers.get("range");
+      // ⚠️ 取音频字节时**不要**带 cookie：这是 CDN 的地址，不是 API 的，
+      // 签名已经在 url 里了。往 CDN 发账号 cookie 是白送凭据。
       const up = await fetch(src, {
         headers: range ? { Range: range } : {},
         cache: "no-store",

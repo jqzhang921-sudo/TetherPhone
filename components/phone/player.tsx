@@ -22,6 +22,8 @@ type Ctl = {
   err: string | null;
   /// 这首只有试听片段。播到一半会断，界面得说出来。
   trial: boolean;
+  /// 音源那边有没有登录态。决定试听提示该说哪句话。
+  loggedIn: boolean;
   play: (t: Track, queue?: Track[]) => void;
   toggle: () => void;
   next: () => void;
@@ -51,6 +53,7 @@ export function PlayerProvider({
   const [len, setLen] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const [trial, setTrial] = useState(false);
+  const [loggedIn, setLoggedIn] = useState(false);
   /// 本地文件的 objectURL 要手动回收，不然放几十首就攒一堆
   const objUrl = useRef<string | null>(null);
 
@@ -74,6 +77,7 @@ export function PlayerProvider({
           const got = await playUrl(apiBase.trim(), t.songId);
           el.src = got.url;
           setTrial(got.trial);
+          setLoggedIn(got.loggedIn);
         } else {
           throw new Error("这首没有可播的内容");
         }
@@ -137,6 +141,7 @@ export function PlayerProvider({
       len,
       err,
       trial,
+      loggedIn,
       play,
       toggle,
       next: () => step(1),
@@ -145,7 +150,7 @@ export function PlayerProvider({
         if (audio.current) audio.current.currentTime = s;
       },
     }),
-    [track, playing, at, len, err, trial, play, step],
+    [track, playing, at, len, err, trial, loggedIn, play, step],
   );
 
   return (

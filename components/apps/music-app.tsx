@@ -163,7 +163,8 @@ export function MusicApp({ settings }: { settings: Settings }) {
 
           {p.trial && (
             <p className="text-[11px] pt-1" style={{ color: "var(--ink-dim)" }}>
-              这首只有试听片段{p.len > 0 ? `，${mmss(p.len)} 就断` : ""}——完整版要登录有会员的账号。
+              这首只有试听片段{p.len > 0 ? `，${mmss(p.len)} 就断` : ""}——
+              {p.loggedIn ? "你的账号没有这首的完整权限。" : "要先登录（见 tools/music-login.mjs）。"}
             </p>
           )}
           {p.err && (
