@@ -107,10 +107,13 @@ export function ChatApp({
   contacts,
   settings,
   onOpenProfile,
+  openWith,
 }: {
   contacts: Contact[];
   settings: Settings;
   onOpenProfile: (c: Contact) => void;
+  /// 从主页「发消息」进来时，直接开这个人的会话，别把人扔回列表让他再点一次。
+  openWith?: string | null;
 }) {
   const bubble = bubbleById(settings.bubbleStyle);
   /// 聊天页的宽高比，算背景下限要按 cover 裁过再取样。量一次就够。
@@ -120,7 +123,10 @@ export function ChatApp({
   const measure = useCallback((el: HTMLDivElement | null) => {
     if (el?.offsetHeight) setAspect(el.offsetWidth / el.offsetHeight);
   }, []);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(openWith ?? null);
+  useEffect(() => {
+    if (openWith) setOpenId(openWith);
+  }, [openWith]);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const [diary, setDiary] = useState<DiaryEntry[]>([]);

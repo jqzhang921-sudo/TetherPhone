@@ -49,6 +49,9 @@ export function Phone() {
   const [sheet, setSheet] = useState<Contact | null>(null);
   /// 主页是「看」，资料卡是「改」。两层分开——从主页点编辑才叠资料卡上去。
   const [profile, setProfile] = useState<Contact | null>(null);
+  /// 从主页跳进聊天时带上「开谁」。**app 关掉就清空**——
+  /// 不清的话下次从桌面点聊天会莫名其妙直接进上一个人的会话。
+  const [chatWith, setChatWith] = useState<string | null>(null);
   const [badges, setBadges] = useState<Record<string, number>>({});
   const device = useRef<HTMLDivElement>(null);
   /// 计时回调要拿到最新的联系人和「在和谁听」，但又不能把它们塞进依赖里
@@ -234,6 +237,7 @@ export function Phone() {
     window.setTimeout(() => {
       setOpen(null);
       setClosing(false);
+      setChatWith(null);
     }, 420);
   }, []);
 
@@ -332,7 +336,12 @@ export function Phone() {
       {open && app && (
         <AppWindow app={app} origin={open.origin} closing={closing} onClose={closeApp}>
           {app.id === "chat" ? (
-            <ChatApp contacts={contacts} settings={settings} onOpenProfile={showProfile} />
+            <ChatApp
+              contacts={contacts}
+              settings={settings}
+              onOpenProfile={showProfile}
+              openWith={chatWith}
+            />
           ) : app.id === "contacts" ? (
             <ContactsApp contacts={contacts} onOpen={showProfile} onAdd={() => void addContact()} />
           ) : app.id === "diary" ? (
@@ -394,6 +403,7 @@ export function Phone() {
             const c = box
               ? { x: box.left + box.width / 2, y: box.top + box.height / 2 }
               : { x: 0, y: 0 };
+            setChatWith(profile.id);
             window.setTimeout(() => openApp("chat", c), 60);
           }}
           onClose={closeLayer}

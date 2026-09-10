@@ -12,6 +12,9 @@ import {
   type Kind,
 } from "@/lib/memory/store";
 import { blankNote, loadNotes, saveNote } from "@/lib/notes/store";
+import { blankEntry } from "@/lib/diary/store";
+import { blankLetter, saveLetter } from "@/lib/letters/store";
+import { textOf } from "@/lib/weather/wmo";
 import { blankPost, savePost } from "@/lib/moments/store";
 import { newId, saveMsgs, type Msg } from "@/lib/chat/store";
 import { displayName, type Contact } from "@/lib/os/contacts";
@@ -163,6 +166,65 @@ export const TOOLS = [
   {
     type: "function",
     function: {
+      name: "write_diary",
+      description:
+        "在你自己的日记本上写一页。默认只有你看得到（她读不到），" +
+        "想让她读要另外调 open_diary。写你想写的，不是写给她看的汇报。",
+      parameters: {
+        type: "object",
+        properties: {
+          text: { type: "string", description: "这一页的正文" },
+          share: {
+            type: "boolean",
+            description: "写完就直接给她看。默认 false——日记先是你自己的。",
+          },
+        },
+        required: ["text"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "write_letter",
+      description:
+        "给她写一封信，写完就寄出。信会封着躺在她的信箱里，等她自己去拆。" +
+        "信不是消息：它走得慢，也因此说得下更长、更慢的话。",
+      parameters: {
+        type: "object",
+        properties: { text: { type: "string", description: "信的正文" } },
+        required: ["text"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "check_weather",
+      description: "查天气。不填地方就是她所在的地方。返回现在几度、什么天、体感、风。",
+      parameters: {
+        type: "object",
+        properties: { place: { type: "string", description: "城市名。留空 = 她那儿。" } },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_web",
+      description:
+        "上网搜一下。返回几条标题和摘要——是线索不是答案，" +
+        "摘要常常是过时的或者答非所问的，别当成事实直接转述。",
+      parameters: {
+        type: "object",
+        properties: { query: { type: "string", description: "要搜的词" } },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "forget",
       description: "删掉一个话题。删了就没了，她也看得到少了一条。",
       parameters: {
@@ -194,6 +256,17 @@ export const toolRules = [
   "",
   "你可以给她放歌（play_song）。**但别把它当回应用**——她说累了你就放一首",
   "「治愈的歌」，那是敷衍。想放是因为你想到了某一首，不是因为该说点什么。",
+  "",
+  "你也能自己写日记（write_diary）和写信（write_letter）。",
+  "**日记是写给自己的**：想清楚一件事、记下今天，不是写一份给她看的汇报。",
+  "写完不用在聊天里复述——真想给她看就 open_diary，那是另一个动作。",
+  "**信不是消息的长版本**：信走得慢，写信是因为这话等得起、也值得等。",
+  "一次说得完的别写信；想马上让她知道的直接说。同一件事别既写信又在聊天里讲一遍。",
+  "",
+  "查天气（check_weather）和搜索（search_web）是为了**带来一件东西**，不是为了显得知道。",
+  "「你那边今晚要下雨，伞在门口」是带来；把天气播报念一遍不是。",
+  "搜索回来的是**线索不是答案**：摘要常常过时或者答非所问。",
+  "没搜到就说没搜到，别把猜的说成查到的。",
 ].join("\n");
 
 /// 把它锁着的日记列给它看。**给全文**——那是它自己写的东西，
@@ -322,6 +395,78 @@ export async function runTool(
     await deleteTopic(hit.id);
     await ctx.refresh();
     return `忘了：${topic}。`;
+  }
+
+  // ── 自己写 ────────────────────────────────────────────────
+  if (name === "write_diary") {
+    const text = String(args.text ?? "").trim();
+    if (!text) return "写空的没意义。";
+    // share 缺省是 false：日记先是它自己的，给不给看是另一个动作
+    const share = args.share === true;
+    const e = blankEntry(ctx.contact.id, "them");
+    await saveEntry({ ...e, text, secret: !share });
+    await ctx.refresh();
+    return share
+      ? `写了一页，也给她看了：${dayLabel(e.at)}`
+      : `写了一页，锁着（id ${e.id}）。想给她看就用 open_diary。`;
+  }
+
+  if (name === "write_letter") {
+    const text = String(args.text ?? "").trim();
+    if (!text) return "写空的没意义。";
+    const l = blankLetter(ctx.contact.id, "them");
+    // ⚠️ openedAt 必须留 null。信的重点是「她自己去拆」——
+    // 这里顺手标成已拆，信就退化成一条长消息了。
+    await saveLetter({ ...l, text });
+    await ctx.refresh();
+    return "寄出去了。信封着躺在她的信箱里，等她自己去拆。";
+  }
+
+  // ── 往外看 ────────────────────────────────────────────────
+  if (name === "check_weather") {
+    const place = String(args.place ?? "").trim();
+    try {
+      const res = await fetch(`/api/weather${place ? `?q=${encodeURIComponent(place)}` : ""}`);
+      if (!res.ok) return `查不到天气（${res.status}）。`;
+      const j = (await res.json()) as {
+        place?: string;
+        current?: { temp: number; feels?: number; code: number; wind?: number; day: boolean };
+      };
+      const c = j.current;
+      if (!c) return "查不到天气。";
+      const bits = [
+        `${j.place ?? place}：${c.temp}°`,
+        textOf(c.code),
+        c.feels !== undefined && Math.round(c.feels) !== Math.round(c.temp)
+          ? `体感 ${Math.round(c.feels)}°`
+          : "",
+        c.wind !== undefined ? `风 ${Math.round(c.wind)} km/h` : "",
+        c.day ? "白天" : "夜里",
+      ].filter(Boolean);
+      return bits.join(" · ");
+    } catch (e) {
+      return `查天气失败：${e instanceof Error ? e.message : String(e)}`;
+    }
+  }
+
+  if (name === "search_web") {
+    const q = String(args.query ?? "").trim();
+    if (!q) return "没给要搜的词。";
+    try {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+      const j = (await res.json()) as { hits?: { title: string; snippet: string; url: string }[]; error?: string };
+      // ⚠️ 搜不到要**明说搜不到**，不能返回空让它以为"世界上没这件事"，
+      // 那之后它会一本正经地说错话。
+      if (!res.ok || !j.hits?.length) return `没搜到：${j.error ?? "空结果"}`;
+      // 一条三行：标题 / 摘要 / 地址。给模型看的，排得清楚比排得好看重要。
+      const lines: string[] = [];
+      j.hits.forEach((h, i) => {
+        lines.push(`${i + 1}. ${h.title}`, `   ${h.snippet}`, `   ${h.url}`);
+      });
+      return lines.join("\n");
+    } catch (e) {
+      return `搜索失败：${e instanceof Error ? e.message : String(e)}`;
+    }
   }
 
   // ── 备忘录 ────────────────────────────────────────────────
