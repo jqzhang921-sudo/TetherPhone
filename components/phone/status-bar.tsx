@@ -18,8 +18,12 @@ export function StatusBar({ dim = false }: { dim?: boolean }) {
 
   return (
     <div
-      className="flex items-center justify-between px-7 pt-3 pb-1 text-[15px] font-semibold select-none"
-      style={{ color: dim ? "var(--ink-dim)" : "var(--ink)" }}
+      className="flex items-center justify-between px-7 pb-1 text-[15px] font-semibold select-none"
+      style={{
+        color: dim ? "var(--ink-dim)" : "var(--ink)",
+        // 刘海/挖孔在这条的上面，得把它推下来
+        paddingTop: "calc(0.75rem + var(--sat))",
+      }}
     >
       <span className="tabular-nums w-14">{time}</span>
       <span className="flex items-center gap-1.5 opacity-90">

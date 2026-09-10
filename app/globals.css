@@ -26,6 +26,11 @@
   --ease-ios: cubic-bezier(0.32, 0.72, 0, 1);
   --dur-app: 420ms;
 
+  /* 系统 UI 占掉的边。桌面上这台"手机"是浮在页面里的一个盒子，
+     不该让边，所以默认 0；只有铺满整屏时才去读真实值（见下面的媒体查询）。 */
+  --sat: 0px;
+  --sab: 0px;
+
   /* 手写体。日记 / 信 / 便签的正文用它——那些东西是"写上去的"，
      不是"印上去的"。字体本体切成了 unicode-range 分片
      （见 tools/slice-font.py），只有真的渲染到手写体的页面才会触发下载，
@@ -145,5 +150,14 @@ body {
     height: 100dvh;
     border-radius: 0;
     box-shadow: none;
+  }
+
+  /* ⚠️ 这两个值**只有配 viewport-fit=cover 才非零**。
+     开了 cover，页面就伸进刘海和系统导航条的地盘——满屏的天空要的正是这个，
+     但状态栏文字和底部那条 home 指示条必须自己让开，否则会和真手机的
+     导航条重叠（安卓三键导航尤其明显，iPhone 上是那条小黑杠）。 */
+  :root {
+    --sat: env(safe-area-inset-top, 0px);
+    --sab: env(safe-area-inset-bottom, 0px);
   }
 }

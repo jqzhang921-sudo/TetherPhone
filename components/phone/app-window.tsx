@@ -82,8 +82,8 @@ export function AppWindow({
 
       {/* home 条：上滑或点一下回桌面 */}
       <div
-        className="shrink-0 pt-2 pb-2 flex justify-center relative z-10"
-        style={{ touchAction: "none" }}
+        className="shrink-0 pt-2 flex justify-center relative z-10"
+        style={{ touchAction: "none", paddingBottom: "calc(0.5rem + var(--sab))" }}
         onPointerDown={(e) => { start.current = e.clientY; }}
         onPointerMove={(e) => {
           if (start.current === null) return;

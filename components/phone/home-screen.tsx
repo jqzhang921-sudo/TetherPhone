@@ -79,7 +79,10 @@ export function HomeScreen({
         </div>
       </div>
 
-      <div className="flex justify-center pb-2">
+      <div
+        className="flex justify-center"
+        style={{ paddingBottom: "calc(0.5rem + var(--sab))" }}
+      >
         <span
           className="w-[134px] h-[5px] rounded-full"
           style={{ background: "var(--ink)", opacity: 0.35 }}

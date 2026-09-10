@@ -40,6 +40,32 @@ export function Phone() {
   const [badges, setBadges] = useState<Record<string, number>>({});
   const device = useRef<HTMLDivElement>(null);
 
+  // ── 系统返回键 ────────────────────────────────────────────────
+  //
+  // 安卓的返回手势/返回键走的是浏览器历史。每打开一层（app、资料卡）就压一条
+  // 历史进去，返回时 popstate 把最上面那层关掉——**这样系统返回键和界面里的
+  // home 条走的是同一条路**，不会出现「按返回直接退出整个站」。
+  //
+  // iOS 加到主屏幕后没有系统返回键，所以 home 条不能撤，它才是那边唯一的出口。
+  const depth = useRef(0);
+  const sheetRef = useRef<Contact | null>(null);
+  const openRef = useRef<Open | null>(null);
+  useEffect(() => {
+    sheetRef.current = sheet;
+  }, [sheet]);
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
+
+  const pushLayer = () => {
+    try {
+      history.pushState({ tether: ++depth.current }, "");
+    } catch {
+      // 历史 API 用不了（极少数内嵌 webview）就退回「只能点 home 条」，
+      // 不影响别的。
+    }
+  };
+
   /// 桌面上的红点。现在只有「还没拆的信」一种，但入口留成通用的
   /// ——动态、备忘录以后都要往这儿挂。
   const refreshBadges = useCallback(async (list: Contact[]) => {
@@ -82,7 +108,7 @@ export function Phone() {
     const c = blankContact();
     await saveContact(c);
     setContacts(await loadContacts());
-    setSheet(c);
+    showSheet(c);
   };
 
   const wallpaper = wallpaperById(settings.wallpaperId);
@@ -91,19 +117,53 @@ export function Phone() {
     // AppIcon 给的是视口坐标；窗口的 transform-origin 要的是设备框内坐标。
     const box = device.current?.getBoundingClientRect();
     setClosing(false);
+    pushLayer();
     setOpen({
       id,
       origin: box ? { x: center.x - box.left, y: center.y - box.top } : { x: 195, y: 500 },
     });
   };
 
-  const closeApp = () => {
+  /// 真正的收回动作。**只有 popstate 和兜底路径调它**——
+  /// 界面上的关闭走 history.back()，让两条路汇成一条。
+  const doCloseApp = useCallback(() => {
     // 先播收回动画，播完再卸载——直接卸载就是硬切，看着像闪退。
     setClosing(true);
     window.setTimeout(() => {
       setOpen(null);
       setClosing(false);
     }, 420);
+  }, []);
+
+  useEffect(() => {
+    const onPop = () => {
+      if (depth.current > 0) depth.current--;
+      // 从最上面一层往下关
+      if (sheetRef.current) {
+        setSheet(null);
+        return;
+      }
+      if (openRef.current) doCloseApp();
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [doCloseApp]);
+
+  /// 界面上的关闭。压过历史就走 back（让系统返回键和它同一条路），
+  /// 没压成功就直接关。
+  const closeApp = () => {
+    if (depth.current > 0) history.back();
+    else doCloseApp();
+  };
+
+  const closeSheet = () => {
+    if (depth.current > 0) history.back();
+    else setSheet(null);
+  };
+
+  const showSheet = (c: Contact) => {
+    setSheet(c);
+    pushLayer();
   };
 
   const app = open ? appById(open.id) : undefined;
@@ -124,9 +184,9 @@ export function Phone() {
       {open && app && (
         <AppWindow app={app} origin={open.origin} closing={closing} onClose={closeApp}>
           {app.id === "chat" ? (
-            <ChatApp contacts={contacts} settings={settings} onOpenProfile={setSheet} />
+            <ChatApp contacts={contacts} settings={settings} onOpenProfile={showSheet} />
           ) : app.id === "contacts" ? (
-            <ContactsApp contacts={contacts} onOpen={setSheet} onAdd={() => void addContact()} />
+            <ContactsApp contacts={contacts} onOpen={showSheet} onAdd={() => void addContact()} />
           ) : app.id === "diary" ? (
             <DiaryApp contacts={contacts} settings={settings} />
           ) : app.id === "letters" ? (
@@ -156,7 +216,7 @@ export function Phone() {
           canDelete={contacts.length > 1}
           onSave={(c) => void upsertContact(c)}
           onDelete={(id) => void removeContact(id)}
-          onClose={() => setSheet(null)}
+          onClose={closeSheet}
         />
       )}
     </div>

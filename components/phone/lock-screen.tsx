@@ -60,7 +60,10 @@ export function LockScreen({ onUnlock }: { onUnlock: () => void }) {
           {hh}:{mm}
         </div>
       </div>
-      <div className="pb-8 flex flex-col items-center gap-3 select-none">
+      <div
+        className="flex flex-col items-center gap-3 select-none"
+        style={{ paddingBottom: "calc(2rem + var(--sab))" }}
+      >
         <span className="text-[12px]" style={{ color: "var(--ink-faint)" }}>
           上滑解锁
         </span>
