@@ -97,9 +97,11 @@ export function HomeScreen({
       <div className="flex-1 min-h-0 overflow-y-auto no-bar px-4 pt-2">
         {/* 组件。四列网格，宽的占四格、窄的占两格 */}
         {widgets.length > 0 && (
-          <div className="grid grid-cols-4 gap-3 pb-4">
+          <div className="grid grid-cols-4 gap-x-4 gap-y-5 pb-5">
             {widgets.map((w) => (
-              <div key={w} className={`relative ${edit ? "anim-wiggle" : ""} contents`}>
+              // contents：让 Card 自己的 col-span 直接落在这个网格上，
+              // 中间不能多一层盒子，否则跨列失效
+              <div key={w} className={edit ? "anim-wiggle contents" : "contents"}>
                 <Widget id={w} settings={settings} contacts={contacts} onOpen={onOpen} />
               </div>
             ))}

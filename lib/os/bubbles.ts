@@ -69,8 +69,11 @@ export const BUBBLES: BubbleStyle[] = [
     id: "ink",
     name: "描边",
     hint: "只有一圈线，最轻",
-    me: (tint) => ({ ...solid(82), border: `1.5px solid ${tint}` }),
-    them: { ...solid(82), border: "1.5px solid var(--ink-faint)" },
+    // ⚠️ 线要压得比字轻。1.5px 的实色描边比正文还抢眼，一眼先看见框、
+    // 再看见话——这套的名字叫「最轻」，就不该是屏幕上最重的东西。
+    // 收到 1px，颜色兑掉一半透明度。
+    me: (tint) => ({ ...solid(82), border: `1px solid color-mix(in oklab, ${tint} 42%, transparent)` }),
+    them: { ...solid(82), border: "1px solid color-mix(in oklab, var(--ink) 13%, transparent)" },
   },
 ];
 
