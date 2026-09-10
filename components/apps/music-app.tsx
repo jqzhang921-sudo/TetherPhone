@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   deleteTrack,
   loadTracks,
@@ -12,8 +12,7 @@ import {
   type Track,
 } from "@/lib/music/store";
 import { mmss, usePlayer } from "@/components/phone/player";
-import { analyze, describe } from "@/lib/music/analyze";
-import { completeOnce, identity } from "@/lib/ai";
+import { MusicPlayer } from "./music-player";
 import { displayName, type Contact } from "@/lib/os/contacts";
 import { newId } from "@/lib/id";
 import type { Settings } from "@/lib/os/settings";
@@ -61,78 +60,13 @@ export function MusicApp({
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [words, setWords] = useState<string | null>(null);
-  const [remark, setRemark] = useState<string | null>(null);
-  /// 每首只问一次。不加这个，进度更新会把它反复叫醒。
-  const asked = useRef<string | null>(null);
+  /// 展开成全屏播放页
+  const [full, setFull] = useState(false);
 
   const together = contacts.find((c) => c.id === settings.togetherWith) ?? null;
 
   const base = settings.musicApiBase.trim();
 
-  /// 换了一首歌，它可能想说一句。
-  ///
-  /// ⚠️ 提示词里**明说它听不到声音**，只看得到歌名和歌词。不说这句，它会写出
-  /// 「这个前奏真好听」这种它根本没听到的话——那是演，不是陪着。
-  ///
-  /// ⚠️ 它可以回「不说」，而且提示词里写了这是常有的事。换一首就非要评一句，
-  /// 就成了每首歌都要交作业。
-  useEffect(() => {
-    const t = p.track;
-    if (!together || !t || !settings.apiKey) return;
-    if (asked.current === t.id) return;
-    asked.current = t.id;
-    setRemark(null);
-    void (async () => {
-      let objUrl: string | null = null;
-      try {
-        let lrc = "";
-        let sound = "";
-
-        if (t.kind === "online" && t.songId && base) {
-          lrc = (await fetchLyric(base, t.songId)).replace(/\[[\d:.]+\]/g, "").trim().slice(0, 300);
-        }
-
-        // 量一下这段声波。**能量出来是因为音频现在是同源的**
-        // （本地文件本来就是；在线的经本站转发之后也是）。
-        const src =
-          t.kind === "local" && t.blob
-            ? (objUrl = URL.createObjectURL(t.blob))
-            : base && t.songId
-              ? `/api/music?op=stream&base=${encodeURIComponent(base)}&id=${encodeURIComponent(t.songId)}`
-              : null;
-        if (src) {
-          const f = await analyze(src);
-          if (f) sound = describe(f);
-        }
-
-        const said = await completeOnce(
-          settings,
-          together,
-          [
-            ...identity(together, settings),
-            `你们在一起听歌。现在放的是《${t.title}》${t.artist ? " - " + t.artist : ""}。`,
-            lrc ? `歌词（节选）：\n${lrc}` : "",
-            sound ? `这首**量出来**的样子：${sound}。` : "",
-            // ⚠️ 这段话是整个设计的关键。给了数据就更要说清楚数据是什么，
-            // 否则它会顺着「你能感受音乐」演下去——那正是要避免的。
-            "⚠️ 上面那些是从声波里量出来的数，**不是你听到的**——你没有听觉。",
-            "可以据此说话（比如「这首挺快的」「后面突然响起来了」），",
-            "但别写「我听到…」「这个前奏真好听」这种假装有听觉的话。",
-            "想说点什么就只输出那句话（一句，短，像并排坐着随口说的）；",
-            "没什么想说的就输出「不说」——**这也是常有的事，别硬凑**。",
-          ]
-            .filter(Boolean)
-            .join("\n"),
-        );
-        const w = said.trim();
-        if (w && !/^(不说|没有|无|不评论)$/.test(w)) setRemark(w);
-      } catch {
-        // 说不出来就算了，不该让一句闲话变成一条报错
-      } finally {
-        if (objUrl) URL.revokeObjectURL(objUrl);
-      }
-    })();
-  }, [p.track, together, settings, base]);
   const refresh = useCallback(async () => setTracks(await loadTracks()), []);
   useEffect(() => {
     void refresh();
@@ -186,14 +120,16 @@ export function MusicApp({
             <span style={{ color: "var(--ink-dim)" }}>
               <Bars on={p.playing} />
             </span>
-            <span className="min-w-0 flex-1">
+            {/* 点标题这块展开成播放页；控制键还留在原地，
+                不用为了暂停先展开再收起 */}
+            <button onClick={() => setFull(true)} className="min-w-0 flex-1 text-left active:opacity-60">
               <span className="block text-[14px] truncate" style={{ color: "var(--ink)" }}>
                 {p.track.title}
               </span>
               <span className="block text-[11px] truncate" style={{ color: "var(--ink-faint)" }}>
                 {p.track.artist || (p.track.kind === "online" ? "在线" : "本地文件")}
               </span>
-            </span>
+            </button>
             <button onClick={p.prev} className="p-1.5 active:opacity-50" aria-label="上一首">
               <svg viewBox="0 0 24 24" width="19" height="19" fill="var(--ink-dim)">
                 <path d="M7 6h2v12H7zM19 6v12l-9-6z" />
@@ -301,13 +237,6 @@ export function MusicApp({
             </span>
           </div>
 
-          {together && remark && (
-            <p className="text-[12px] leading-relaxed pt-1.5 pl-1" style={{ color: "var(--ink-dim)" }}>
-              <span style={{ color: together.tint }}>{displayName(together)}</span>
-              <span style={{ color: "var(--ink-faint)" }}>：</span>
-              {remark}
-            </p>
-          )}
         </div>
       )}
 
@@ -462,6 +391,15 @@ export function MusicApp({
         <p className="shrink-0 text-center text-[11px] pb-2 px-6" style={{ color: "var(--ink-faint)" }}>
           {note}
         </p>
+      )}
+
+      {full && p.track && (
+        <MusicPlayer
+          settings={settings}
+          together={together}
+          onChange={onChange}
+          onClose={() => setFull(false)}
+        />
       )}
     </div>
   );

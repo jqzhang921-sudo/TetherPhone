@@ -167,6 +167,38 @@ export async function GET(req: Request) {
       return new Response(up.body, { status: up.status, headers: head });
     }
 
+    if (op === "cover") {
+      // 封面也要经本站转发。
+      // ⚠️ 不是为了 CORS 头——是为了**能读像素**：跨域图画进 canvas 会污染画布，
+      // getImageData 直接抛 SecurityError，取色就无从谈起。
+      const u = p.get("u");
+      if (!u) return new Response("没给地址", { status: 400 });
+      let cdn: URL;
+      try {
+        cdn = new URL(u);
+      } catch {
+        return new Response("地址不合法", { status: 400 });
+      }
+      // 只放行音乐平台的图床，别把这里变成通用图片代理
+      if (!/(^|\.)(music\.126\.net|126\.net|qpic\.cn|kgimg\.com|kuwo\.cn)$/i.test(cdn.hostname)) {
+        return new Response("这个域名不在允许之列", { status: 400 });
+      }
+      // 原图能到 1MB 以上，而这儿只要一张播放页的封面 + 32×32 的取色采样。
+      // 网易云的图床支持 `param=WxH`，让它那边缩好再传。
+      if (/126\.net$/i.test(cdn.hostname) && !cdn.searchParams.has("param")) {
+        cdn.searchParams.set("param", "500y500");
+      }
+      const up = await fetch(cdn.toString(), { cache: "no-store" });
+      if (!up.ok) return new Response(`封面返回 ${up.status}`, { status: 502 });
+      return new Response(up.body, {
+        headers: {
+          "Content-Type": up.headers.get("content-type") ?? "image/jpeg",
+          // 封面不会变，可以让浏览器留着
+          "Cache-Control": "public, max-age=86400",
+        },
+      });
+    }
+
     if (op === "lyric") {
       const id = p.get("id");
       if (!id) return Response.json({ error: "没给 id" }, { status: 400 });

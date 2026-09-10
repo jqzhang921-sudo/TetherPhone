@@ -90,6 +90,11 @@ export async function playUrl(
   };
 }
 
+/// 封面的本站地址。**必须走中转**——跨域图画进 canvas 会污染画布，
+/// 取色就做不了了（见 lib/music/tone.ts）。
+export const coverUrl = (base: string, raw?: string) =>
+  raw ? `/api/music?op=cover&base=${encodeURIComponent(base)}&u=${encodeURIComponent(raw)}` : "";
+
 export async function lyric(base: string, songId: string): Promise<string> {
   const r = await fetch(
     `/api/music?op=lyric&base=${encodeURIComponent(base)}&id=${encodeURIComponent(songId)}`,

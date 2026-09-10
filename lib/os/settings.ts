@@ -21,6 +21,8 @@ export type Settings = {
   musicApiBase: string;
   /// 在和谁一起听。空 = 自己听。
   togetherWith: string;
+  /// 放歌时的背景。"cover" = 从封面取色（默认），或者某张壁纸的 id。
+  musicBg: string;
 
   /// ⚠️ 下面两个是旧版遗留，只用来在第一次启动时把老数据搬进联系人。
   /// 设置页不再编辑它们。见 contacts.ensureSeed。
@@ -39,6 +41,7 @@ export const DEFAULT_SETTINGS: Settings = {
   weatherPlace: "",
   musicApiBase: "",
   togetherWith: "",
+  musicBg: "cover",
 };
 
 const KEY = "tether.settings.v1";
