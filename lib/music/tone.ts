@@ -231,3 +231,57 @@ export function readImage(url: string, aspect = 9 / 19.5): Promise<{ tone: Tone;
     img.src = url;
   });
 }
+
+/// 内置壁纸（CSS 渐变）的玻璃下限。
+///
+/// canvas 画不了 CSS 渐变，所以不能像照片那样采样。但**渐变的极值被它的色标夹住**：
+/// 每一层都是凸混合，合成结果的每个通道都落在参与色标的最小值和最大值之间。
+/// 所以取所有色标的**逐通道** min / max 当谷值和峰值，是一个严格的、偏保守的界。
+///
+/// oklch → sRGB 这一步交给浏览器：`ctx.fillStyle = "oklch(...)"` 之后画一个像素读回来，
+/// 比自己写一遍逆变换可靠。
+function rgbOf(css: string): [number, number, number] | null {
+  const c = document.createElement("canvas");
+  c.width = c.height = 1;
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+  // ⚠️ 认不出来的颜色，fillStyle 会**保持原样**而不是报错。
+  // 先塞一个哨兵，赋值后没变就说明这个浏览器不认识它。
+  ctx.fillStyle = "#010203";
+  ctx.fillStyle = css;
+  if (ctx.fillStyle === "#010203") return null;
+  ctx.fillRect(0, 0, 1, 1);
+  const d = ctx.getImageData(0, 0, 1, 1).data;
+  return [d[0], d[1], d[2]];
+}
+
+export function floorOfCss(css: string, dark: boolean): number {
+  const stops = css.match(/oklch\([^)]*\)/g) ?? [];
+  const lo: [number, number, number] = [255, 255, 255];
+  const hi: [number, number, number] = [0, 0, 0];
+  let n = 0;
+  for (const s of stops) {
+    const rgb = rgbOf(s);
+    if (!rgb) continue;
+    n++;
+    for (let i = 0; i < 3; i++) {
+      lo[i] = Math.min(lo[i], rgb[i]);
+      hi[i] = Math.max(hi[i], rgb[i]);
+    }
+  }
+  // 一个色标都解析不出来（老浏览器不认 oklch）：退回一个保守值，
+  // **别让滑杆在算不出下限的时候变得没人管**。
+  if (n === 0) return dark ? 0.46 : 0.5;
+
+  // 拼一小片"只有两种颜色"的像素喂给同一套算法：各 8 个，
+  // 这样"第三亮/第三暗"取到的正好就是这两端。
+  const px = new Uint8ClampedArray(16 * 4);
+  for (let i = 0; i < 16; i++) {
+    const c = i < 8 ? lo : hi;
+    px[i * 4] = c[0];
+    px[i * 4 + 1] = c[1];
+    px[i * 4 + 2] = c[2];
+    px[i * 4 + 3] = 255;
+  }
+  return minGlassAlpha(px, dark);
+}

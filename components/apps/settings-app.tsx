@@ -1,14 +1,13 @@
 "use client";
 import { useRef, useState } from "react";
-import { WALLPAPERS } from "@/lib/os/wallpapers";
 import type { Settings } from "@/lib/os/settings";
 import type { Contact } from "@/lib/os/contacts";
 import { exportBackup, importBackup } from "@/lib/os/backup";
 import { clearAllMsgs } from "@/lib/chat/store";
-import { PHONE_SCOPE, blankPhoto, savePhoto, shrink } from "@/lib/photos/store";
 import { MusicLogin } from "./music-login";
 import { Avatar } from "@/components/phone/avatar";
 import { PhotoPicker } from "@/components/photos/photo-picker";
+import { shrink } from "@/lib/photos/store";
 import { cropSquare, clearMeAvatar, saveMeAvatar, useMe } from "@/lib/os/avatar";
 
 const inputStyle: React.CSSProperties = {
@@ -205,63 +204,6 @@ export function SettingsApp({
         </Group>
       )}
 
-      <Group title="壁纸">
-        <div className="grid grid-cols-3 gap-3">
-          {/* 自己传一张。**深浅是从图里算的，不用选**——
-              选错了整页字就没法看，而且换一张还得再选一次。 */}
-          <label
-            className="rounded-2xl aspect-[9/16] grid place-items-center text-[11px] cursor-pointer"
-            style={{
-              background: "color-mix(in oklab, var(--glass-tint) 70%, transparent)",
-              color: "var(--ink-dim)",
-              outline: settings.wallpaperPhotoId ? "2px solid var(--ink)" : "1px solid var(--glass-edge)",
-              outlineOffset: settings.wallpaperPhotoId ? "2px" : "0",
-            }}
-          >
-            自己传
-            <input
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={async (e) => {
-                const f = e.target.files?.[0];
-                e.target.value = "";
-                if (!f) return;
-                // 壁纸要铺满屏，别压到 1280——那是聊天图的尺寸
-                const { blob, w, h } = await shrink(f, 1600, 0.86);
-                const ph = { ...blankPhoto(PHONE_SCOPE, "me"), blob, w, h, saved: true };
-                await savePhoto(ph);
-                onChange({ wallpaperPhotoId: ph.id });
-              }}
-            />
-          </label>
-          {WALLPAPERS.map((w) => {
-            const on = w.id === settings.wallpaperId;
-            return (
-              <button
-                key={w.id}
-                onClick={() => onChange({ wallpaperId: w.id, wallpaperPhotoId: "" })}
-                className="rounded-2xl overflow-hidden aspect-[9/16] relative transition-transform active:scale-95"
-                style={{
-                  background: w.css,
-                  outline:
-                    on && !settings.wallpaperPhotoId
-                      ? "2px solid var(--ink)"
-                      : "1px solid var(--glass-edge)",
-                  outlineOffset: on && !settings.wallpaperPhotoId ? "2px" : "0",
-                }}
-              >
-                <span
-                  className="absolute bottom-1 left-0 right-0 text-[10px]"
-                  style={{ color: w.tone === "dark" ? "oklch(0.97 0 0)" : "oklch(0.25 0 0)" }}
-                >
-                  {w.name}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </Group>
 
       <Group title="备份">
         <p className="text-[11px] leading-relaxed" style={{ color: "var(--ink-faint)" }}>

@@ -20,7 +20,7 @@ import { PlaceholderApp } from "@/components/apps/placeholder-app";
 import { appById } from "@/lib/apps/registry";
 import { wallpaperById } from "@/lib/os/wallpapers";
 import { getAll } from "@/lib/db/idb";
-import { readImage } from "@/lib/music/tone";
+import { readImage, floorOfCss } from "@/lib/music/tone";
 import type { Photo } from "@/lib/photos/store";
 import {
   blankContact,
@@ -32,6 +32,7 @@ import {
 } from "@/lib/os/contacts";
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from "@/lib/os/settings";
 import { loadLetters, unreadCount } from "@/lib/letters/store";
+import { ThemeApp } from "@/components/apps/theme-app";
 
 type Open = { id: string; origin: { x: number; y: number } };
 
@@ -191,6 +192,17 @@ export function Phone() {
     };
   }, [settings.wallpaperPhotoId]);
 
+  /// 内置壁纸的下限。**照片和渐变走两条路**：照片能采样，渐变采不到，
+  /// 只能从它自己的色标推。算一次存着——换壁纸才需要重算。
+  const [cssFloor, setCssFloor] = useState(0);
+  useEffect(() => {
+    if (settings.wallpaperPhotoId) return;
+    setCssFloor(floorOfCss(wallpaper.css, wallpaper.tone === "dark"));
+  }, [settings.wallpaperPhotoId, wallpaper.css, wallpaper.tone]);
+
+  /// 当前生效的玻璃下限，主题页要用它卡住滑杆
+  const floor = settings.wallpaperPhotoId ? (custom?.alpha ?? 0) : cssFloor;
+
   const openApp = (id: string, center: { x: number; y: number }) => {
     // AppIcon 给的是视口坐标；窗口的 transform-origin 要的是设备框内坐标。
     const box = device.current?.getBoundingClientRect();
@@ -253,18 +265,26 @@ export function Phone() {
       ref={device}
       className="device"
       data-tone={custom ? (custom.dark ? "dark" : "light") : wallpaper.tone}
-      style={
-        custom
+      style={{
+        ...(custom
           ? {
               backgroundImage: `url(${custom.url})`,
               backgroundSize: "cover",
               backgroundPosition: "center",
-              // 这张图算出来的下限，交给 CSS 的 max() 去顶
-              ["--glass-floor" as string]: `${Math.round(custom.alpha * 100)}%`,
-              ["--glass-floor-strong" as string]: `${Math.min(92, Math.round(custom.alpha * 100) + 16)}%`,
             }
-          : { background: wallpaper.css }
-      }
+          : { background: wallpaper.css }),
+        // 这张壁纸算出来的下限，交给 CSS 的 max() 去顶
+        ["--glass-floor" as string]: `${Math.round(floor * 100)}%`,
+        ["--glass-floor-strong" as string]: `${Math.min(92, Math.round(floor * 100) + 16)}%`,
+        // 用户在主题里拉的厚度。**只是"想要的观感"**——上面那条下限还压着它，
+        // 所以拉到最左也不会把字拉没。0 = 没拉过，用 globals.css 的默认。
+        ...(settings.glassAlpha
+          ? {
+              ["--glass-alpha" as string]: `${settings.glassAlpha}%`,
+              ["--glass-alpha-strong" as string]: `${Math.min(92, settings.glassAlpha + 18)}%`,
+            }
+          : null),
+      }}
     >
       {locked ? (
         <LockScreen onUnlock={() => setLocked(false)} />
@@ -308,6 +328,13 @@ export function Phone() {
             <PhotosApp contacts={contacts} />
           ) : app.id === "weather" ? (
             <WeatherApp settings={settings} onChange={patchSettings} />
+          ) : app.id === "theme" ? (
+            <ThemeApp
+              settings={settings}
+              onChange={patchSettings}
+              floor={floor}
+              wallpaperUrl={custom?.url}
+            />
           ) : app.id === "settings" ? (
             <SettingsApp
               settings={settings}

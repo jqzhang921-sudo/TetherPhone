@@ -24,6 +24,7 @@ import { PHONE, loadTracks, saveTrack, search as searchSongs } from "@/lib/music
 import type { Settings } from "@/lib/os/settings";
 import { Avatar } from "@/components/phone/avatar";
 import { faceOf } from "@/lib/os/avatar";
+import { bubbleById } from "@/lib/os/bubbles";
 
 /// 发给上游的消息。比库里存的 Msg 多两样：assistant 可能带 tool_calls，
 /// tool 角色要带 tool_call_id。
@@ -109,6 +110,7 @@ export function ChatApp({
   settings: Settings;
   onOpenProfile: (c: Contact) => void;
 }) {
+  const bubble = bubbleById(settings.bubbleStyle);
   const [openId, setOpenId] = useState<string | null>(null);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [previews, setPreviews] = useState<Record<string, string>>({});
@@ -474,16 +476,8 @@ export function ChatApp({
               {!!m.content && (
                 <div
                   className="px-3.5 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap break-words rounded-[20px]"
-                  style={
-                    m.role === "user"
-                      ? { background: contact.bubble, color: "oklch(0.99 0 0)" }
-                      : {
-                          // 承载文字的面自己立住底，不靠透出背景成立
-                          background: "color-mix(in oklab, var(--glass-tint) 88%, transparent)",
-                          color: "var(--ink)",
-                          border: "1px solid var(--glass-edge)",
-                        }
-                  }
+                  // 样式在 lib/os/bubbles.ts。每套都自己立住底，不靠透出壁纸成立。
+                  style={m.role === "user" ? bubble.me(contact.bubble) : bubble.them}
                 >
                   {m.content}
                 </div>
@@ -493,8 +487,7 @@ export function ChatApp({
         )}
 
         {busy && (
-          <div className="self-start px-3.5 py-3 rounded-[20px]"
-            style={{ background: "color-mix(in oklab, var(--glass-tint) 88%, transparent)" }}>
+          <div className="self-start px-3.5 py-3 rounded-[20px]" style={bubble.them}>
             <span className="flex gap-1">
               {[0, 1, 2].map((i) => (
                 <span key={i} className="w-1.5 h-1.5 rounded-full animate-pulse"

@@ -67,6 +67,13 @@ export const APPS: AppDef[] = [
     icon: <Icon><circle cx="12" cy="12" r="3" /><path d="M12 2.5v2.2M12 19.3v2.2M21.5 12h-2.2M4.7 12H2.5M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6M18.7 18.7l-1.6-1.6M6.9 6.9L5.3 5.3" /></Icon>,
   },
   {
+    id: "theme",
+    name: "主题",
+    tint: "oklch(0.72 0.12 320)",
+    ready: true,
+    icon: <Icon><circle cx="12" cy="12" r="8.5" /><path d="M12 3.5a8.5 8.5 0 0 0 0 17 3 3 0 0 0 0-6 2 2 0 0 1 0-4 3 3 0 0 0 0-7Z" /><circle cx="9" cy="9" r="1" /><circle cx="15.5" cy="10.5" r="1" /></Icon>,
+  },
+  {
     id: "diary",
     name: "日记",
     tint: "oklch(0.75 0.11 85)",

@@ -11,6 +11,11 @@ export type Settings = {
   wallpaperId: string;
   /// 用户自己的资料——聊天页和主页要显示
   userName: string;
+  /// 玻璃透明度，0 = 用默认。**这是"想要的观感"，不是最终值**——
+  /// 壁纸算出来的下限会在 CSS 里用 max() 把它顶回去，拉到底也不会把字拉没。
+  glassAlpha: number;
+  /// 气泡样式 id，空 = 跟随主题
+  bubbleStyle: string;
   userEmoji: string;
   /// 换头像的时间戳，0 = 没设过。**当刷新信号用**：settings 已经流到每个
   /// 要画头像的组件了，这个数一变，它们一起去重读那张图。
@@ -47,6 +52,8 @@ export const DEFAULT_SETTINGS: Settings = {
   model: "deepseek-chat",
   wallpaperId: "dusk",
   userName: "",
+  glassAlpha: 0,
+  bubbleStyle: "",
   userEmoji: "🌱",
   userAvatarAt: 0,
   userSignature: "",
