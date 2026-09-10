@@ -101,6 +101,44 @@ export async function GET(req: Request) {
       return Response.json({ url: d.url, br: d.br, trial: !!d.freeTrialInfo });
     }
 
+    if (op === "stream") {
+      // 音频本身也经服务端转发。
+      //
+      // 本来只想转发「取地址」这一步，让浏览器直接连 CDN 拿音频——省流量。
+      // 但真机上实测不行：`MEDIA_ELEMENT_ERROR` code 4「no supported sources」，
+      // 而同一个地址服务端 fetch 是 206 audio/mpeg、换 https 也一样、
+      // 换 Referer / UA 都一样、浏览器 mp3 解码也正常。浏览器就是拿不到。
+      //
+      // 转发之后这些全绕开了：同源、不涉及 CORS、不涉及混合内容、
+      // 地址每次现取所以也不会过期。**代价是音频流量走这台服务器。**
+      const id = p.get("id");
+      if (!id) return new Response("没给 id", { status: 400 });
+      const j = await grab(`${base}/song/url/v1?id=${encodeURIComponent(id)}&level=standard`);
+      const src = j?.data?.[0]?.url;
+      if (!src) return new Response("这首拿不到音源", { status: 404 });
+
+      // ⚠️ Range 必须原样带上去，否则播放器**拖不动进度条**
+      // ——没有 206 就没法 seek，长音频还会整首等下完。
+      const range = req.headers.get("range");
+      const up = await fetch(src, {
+        headers: range ? { Range: range } : {},
+        cache: "no-store",
+      });
+      if (!up.ok && up.status !== 206) {
+        return new Response(`音源返回 ${up.status}`, { status: 502 });
+      }
+      const head = new Headers({
+        "Content-Type": up.headers.get("content-type") ?? "audio/mpeg",
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "no-store",
+      });
+      for (const k of ["content-length", "content-range"]) {
+        const v = up.headers.get(k);
+        if (v) head.set(k, v);
+      }
+      return new Response(up.body, { status: up.status, headers: head });
+    }
+
     if (op === "lyric") {
       const id = p.get("id");
       if (!id) return Response.json({ error: "没给 id" }, { status: 400 });

@@ -68,20 +68,25 @@ export async function search(base: string, q: string): Promise<Found[]> {
 
 /// 取播放地址。
 ///
-/// ⚠️ **每次播放都现取，不缓存。** 这类音源给的是带签名和有效期的临时地址，
-/// 存下来隔天就是 403，而症状是「这首歌突然不能放了」，看不出是过期。
+/// ⚠️ **给播放器的是本站的转发地址，不是 CDN 的原始地址。**
+/// 真机实测浏览器直连 CDN 拿不到（code 4「no supported sources」），
+/// 而服务端 fetch 同一个地址是 206 audio/mpeg。转发之后同源、不涉及 CORS
+/// 和混合内容，地址也不会过期——每次请求服务端都现去解析一次。
+/// 代价是音频流量走服务器。
 export async function playUrl(
   base: string,
   songId: string,
 ): Promise<{ url: string; trial: boolean }> {
+  // 先问一次拿到「是不是只有试听」这个信息——它决定界面上说什么话。
   const r = await fetch(
     `/api/music?op=url&base=${encodeURIComponent(base)}&id=${encodeURIComponent(songId)}`,
   );
   const j = await r.json();
   if (!r.ok || !j.url) throw new Error(j?.error ?? "这首拿不到音源");
-  // trial = 只有试听片段。**必须带出去**——不然播到一半断掉，
-  // 看起来像是坏了。
-  return { url: j.url as string, trial: !!j.trial };
+  return {
+    url: `/api/music?op=stream&base=${encodeURIComponent(base)}&id=${encodeURIComponent(songId)}`,
+    trial: !!j.trial,
+  };
 }
 
 export async function lyric(base: string, songId: string): Promise<string> {

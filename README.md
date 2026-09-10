@@ -97,7 +97,10 @@ lib/
 - **canvas 渐变要在 transform 之后建**，否则画面整片空白（不报错）。
 - **量 canvas 尺寸用 `offsetWidth`**，`getBoundingClientRect()` 返回的是变换后的
   大小——app 打开动画起手是 `scale(0.16)`，画布会按 16% 建，而且再也不纠正。
-- **在线音源地址每次播放现取，不缓存**。带签名和有效期，存下来隔天就是 403。
+- **在线音频经服务端转发**（`/api/music?op=stream`）。浏览器直连音乐 CDN 真机上
+  拿不到（code 4「no supported sources」，换 https / Referer / UA 都一样，
+  而服务端 fetch 是 206 audio/mpeg）。转发之后同源、不涉及 CORS 和混合内容、
+  地址也不会过期。代价是音频流量走服务器。**Range 要原样透传**，不然拖不动进度条。
 - **`/api/music` 的 base 是 SSRF 面**。部署出去要用 `MUSIC_API_BASE` 钉死；
   但内网地址不能在开发时也挡——自己跑的音源就在 127.0.0.1 上。
 - **「先占坑再干慢活」必须原子**。挑一条候选、问模型几秒、再写回——挑和占分成
