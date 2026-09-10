@@ -4,6 +4,7 @@ import { WALLPAPERS } from "@/lib/os/wallpapers";
 import type { Settings } from "@/lib/os/settings";
 import { exportBackup, importBackup } from "@/lib/os/backup";
 import { clearAllMsgs } from "@/lib/chat/store";
+import { MusicLogin } from "./music-login";
 
 const inputStyle: React.CSSProperties = {
   background: "color-mix(in oklab, var(--glass-tint) 88%, transparent)",
@@ -116,20 +117,18 @@ export function SettingsApp({
         <p className="text-[11px] leading-relaxed" style={{ color: "var(--ink-faint)" }}>
           <b style={{ color: "var(--ink-dim)" }}>这个地址会由本站服务端去请求。</b>
           本机自己跑着用没问题，填 <code>127.0.0.1</code> 也行。
-          但**要是把站部署出去给别人开**，就该在部署平台上设
+          但<b style={{ color: "var(--ink-dim)" }}>要是把站部署出去给别人开</b>，就该在部署平台上设
           <code> MUSIC_API_BASE </code>
           把地址钉死——否则等于让任何人指使你的服务器去访问任意地址，包括内网。
           （部署环境下内网地址默认已经挡了。）
         </p>
-        <p className="text-[11px] leading-relaxed" style={{ color: "var(--ink-faint)" }}>
-          <b style={{ color: "var(--ink-dim)" }}>要听 VIP 的完整版得登录。</b>
-          登录信息**故意不放在这儿**——它等于你的账号，放浏览器里会跟着「导出备份」
-          跑进那个文件。跑一次
-          <code> node tools/music-login.mjs </code>
-          扫个码就行（不用输密码），它只写进服务器的
-          <code> .env.local</code>，然后重启一下服务。
-        </p>
       </Group>
+
+      {settings.musicApiBase.trim() && (
+        <Group title="音乐账号">
+          <MusicLogin base={settings.musicApiBase.trim()} />
+        </Group>
+      )}
 
       <Group title="壁纸">
         <div className="grid grid-cols-3 gap-3">

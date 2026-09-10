@@ -9,6 +9,8 @@
 /// - 设了 `MUSIC_API_BASE` 环境变量就**只用它**，完全忽略客户端传的（部署时该这么配）
 /// - 没设时才收客户端的，并且只放行 http/https、挡掉一眼可见的内网地址
 ///   （这挡不住 DNS 重绑定，只是把误伤和顺手一试挡在外面）
+import { readSession } from "@/lib/music/session";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -49,24 +51,30 @@ type Song = {
   album?: { picUrl?: string };
 };
 
-/// 登录态。
+/// 登录态有两个来源，**优先用每个人自己的**：
+/// 1. 请求带的 httpOnly cookie —— 这个人在这台站上登录过（见 /api/music/login）
+/// 2. `MUSIC_COOKIE` 环境变量 —— 站长自己配的，整站共用
 ///
-/// ⚠️ **只从环境变量来，不收前端传的。** cookie 等于账号的钥匙：
-/// 放浏览器里会跟着「导出备份」跑进那个 JSON，放 URL 参数里会落进请求日志。
-/// 所以它只待在服务器进程里。拿它的办法见 `tools/music-login.mjs`（扫码，不用输密码）。
-const COOKIE = process.env.MUSIC_COOKIE?.trim();
-
-const auth = (): HeadersInit => (COOKIE ? { Cookie: COOKIE } : {});
-
-const grab = async (url: string) => {
-  const r = await fetch(url, { cache: "no-store", headers: auth() });
-  if (!r.ok) throw new Error(`音源返回 ${r.status}`);
-  return r.json();
-};
+/// ⚠️ 环境变量那条只适合**自己一个人用**。发出去给别人用还共用一个账号，
+/// 那是共享账号，也容易让号因为多地同时在线被风控。
+/// 所以是「每个人自己的」优先，环境变量只当兜底。
+///
+/// 两条都**不从前端参数里取**：cookie 放 URL 会落进请求日志。
+const ENV_COOKIE = process.env.MUSIC_COOKIE?.trim();
+const sessionOf = (req: Request) => readSession(req) || ENV_COOKIE;
 
 export async function GET(req: Request) {
   const p = new URL(req.url).searchParams;
   const op = p.get("op");
+  const COOKIE = sessionOf(req);
+  const grab = async (url: string) => {
+    const r = await fetch(url, {
+      cache: "no-store",
+      headers: COOKIE ? { Cookie: COOKIE } : {},
+    });
+    if (!r.ok) throw new Error(`音源返回 ${r.status}`);
+    return r.json();
+  };
   const base = resolveBase(p.get("base"));
   if (!base) {
     return Response.json(
