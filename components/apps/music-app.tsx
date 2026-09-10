@@ -161,6 +161,11 @@ export function MusicApp({ settings }: { settings: Settings }) {
             </pre>
           )}
 
+          {p.trial && (
+            <p className="text-[11px] pt-1" style={{ color: "var(--ink-dim)" }}>
+              这首只有试听片段{p.len > 0 ? `，${mmss(p.len)} 就断` : ""}——完整版要登录有会员的账号。
+            </p>
+          )}
           {p.err && (
             <p className="text-[11px] pt-1" style={{ color: "oklch(0.65 0.19 25)" }}>
               {p.err}

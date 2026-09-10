@@ -70,13 +70,18 @@ export async function search(base: string, q: string): Promise<Found[]> {
 ///
 /// ⚠️ **每次播放都现取，不缓存。** 这类音源给的是带签名和有效期的临时地址，
 /// 存下来隔天就是 403，而症状是「这首歌突然不能放了」，看不出是过期。
-export async function playUrl(base: string, songId: string): Promise<string> {
+export async function playUrl(
+  base: string,
+  songId: string,
+): Promise<{ url: string; trial: boolean }> {
   const r = await fetch(
     `/api/music?op=url&base=${encodeURIComponent(base)}&id=${encodeURIComponent(songId)}`,
   );
   const j = await r.json();
   if (!r.ok || !j.url) throw new Error(j?.error ?? "这首拿不到音源");
-  return j.url as string;
+  // trial = 只有试听片段。**必须带出去**——不然播到一半断掉，
+  // 看起来像是坏了。
+  return { url: j.url as string, trial: !!j.trial };
 }
 
 export async function lyric(base: string, songId: string): Promise<string> {

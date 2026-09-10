@@ -92,12 +92,13 @@ export async function GET(req: Request) {
       const d = j?.data?.[0];
       if (!d?.url) {
         // 拿不到就说清楚**为什么**拿不到。返回一句「失败」等于让人对着猜。
-        return Response.json(
-          { error: d?.freeTrialInfo ? "只有试听片段，这首要登录/会员" : "这首拿不到音源" },
-          { status: 404 },
-        );
+        return Response.json({ error: "这首拿不到音源" }, { status: 404 });
       }
-      return Response.json({ url: d.url, br: d.br });
+      // ⚠️ **试听片段也是有 url 的。** 只判断「有没有 url」会把 30 秒的试听
+      // 当成整首返回——播到一半突然没了，人完全不知道为什么。实测 16 首里
+      // 有 7 首是这种（fee=1 的 VIP 专享，不登录一律只给试听）。
+      // 所以要把这件事**带出去**，让界面说人话。
+      return Response.json({ url: d.url, br: d.br, trial: !!d.freeTrialInfo });
     }
 
     if (op === "lyric") {

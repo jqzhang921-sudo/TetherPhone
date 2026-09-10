@@ -20,6 +20,8 @@ type Ctl = {
   at: number;
   len: number;
   err: string | null;
+  /// 这首只有试听片段。播到一半会断，界面得说出来。
+  trial: boolean;
   play: (t: Track, queue?: Track[]) => void;
   toggle: () => void;
   next: () => void;
@@ -48,6 +50,7 @@ export function PlayerProvider({
   const [at, setAt] = useState(0);
   const [len, setLen] = useState(0);
   const [err, setErr] = useState<string | null>(null);
+  const [trial, setTrial] = useState(false);
   /// 本地文件的 objectURL 要手动回收，不然放几十首就攒一堆
   const objUrl = useRef<string | null>(null);
 
@@ -56,6 +59,7 @@ export function PlayerProvider({
       const el = audio.current;
       if (!el) return;
       setErr(null);
+      setTrial(false);
       if (objUrl.current) {
         URL.revokeObjectURL(objUrl.current);
         objUrl.current = null;
@@ -67,7 +71,9 @@ export function PlayerProvider({
         } else if (t.kind === "online" && t.songId) {
           if (!apiBase.trim()) throw new Error("还没配音源地址");
           // 每次都现取：这类地址带签名和有效期，缓存下来隔天就是 403
-          el.src = await playUrl(apiBase.trim(), t.songId);
+          const got = await playUrl(apiBase.trim(), t.songId);
+          el.src = got.url;
+          setTrial(got.trial);
         } else {
           throw new Error("这首没有可播的内容");
         }
@@ -130,6 +136,7 @@ export function PlayerProvider({
       at,
       len,
       err,
+      trial,
       play,
       toggle,
       next: () => step(1),
@@ -138,7 +145,7 @@ export function PlayerProvider({
         if (audio.current) audio.current.currentTime = s;
       },
     }),
-    [track, playing, at, len, err, play, step],
+    [track, playing, at, len, err, trial, play, step],
   );
 
   return (
@@ -151,8 +158,15 @@ export function PlayerProvider({
         onEnded={() => step(1)}
         onPause={() => setPlaying(false)}
         onPlay={() => setPlaying(true)}
-        // 在线地址是别的域，不带凭据请求，省得触发它那边的 CORS 检查
-        crossOrigin="anonymous"
+        onError={() =>
+          setErr("这个地址放不出来（可能过期了，或者音源那边挡了）")
+        }
+        // ⚠️ **这里千万别加 `crossOrigin`。** 我一开始加了 "anonymous"，
+        // 注释还写着「省得触发 CORS 检查」——**正好想反了**：不加才不检查，
+        // 加了才强制走 CORS，而音乐 CDN 不发 Access-Control-Allow-Origin，
+        // 于是整个加载被拦。症状是「点了没反应、时长 0、也不报错」。
+        // 普通播放本来就不需要 CORS，只有要读音频数据（Web Audio 分析、
+        // 画波形）才需要。
       />
     </Ctx.Provider>
   );
