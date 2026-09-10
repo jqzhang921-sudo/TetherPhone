@@ -31,6 +31,9 @@ export type Contact = {
   model: string;
   /// 用户气泡色；它的气泡跟着玻璃走
   bubble: string;
+  /// 一起听歌累计的秒数。**挂在联系人身上**——「一起听了多久」是你和它之间的事，
+  /// 不是这台手机的属性。
+  together?: number;
   createdAt: number;
 };
 

@@ -43,6 +43,10 @@ export function Phone() {
   const [sheet, setSheet] = useState<Contact | null>(null);
   const [badges, setBadges] = useState<Record<string, number>>({});
   const device = useRef<HTMLDivElement>(null);
+  /// 计时回调要拿到最新的联系人和「在和谁听」，但又不能把它们塞进依赖里
+  /// ——那样每次联系人变动都会重建定时器，永远攒不满 15 秒。用 ref 兜住。
+  const contactsRef = useRef<Contact[]>([]);
+  const togetherRef = useRef("");
 
   // ── 系统返回键 ────────────────────────────────────────────────
   //
@@ -115,6 +119,26 @@ export function Phone() {
     showSheet(c);
   };
 
+  useEffect(() => {
+    contactsRef.current = contacts;
+  }, [contacts]);
+  useEffect(() => {
+    togetherRef.current = settings.togetherWith;
+  }, [settings.togetherWith]);
+
+  /// 一起听的计时落到联系人身上。
+  /// ⚠️ 不在 setContacts 的更新函数里做写库——严格模式会把更新函数跑两遍，
+  /// 那样每次都记双倍。先算好、写库，再更新状态。
+  const onListened = useCallback((sec: number) => {
+    const id = togetherRef.current;
+    if (!id) return;
+    const hit = contactsRef.current.find((c) => c.id === id);
+    if (!hit) return;
+    const next = { ...hit, together: (hit.together ?? 0) + sec };
+    void saveContact(next);
+    setContacts((prev) => prev.map((c) => (c.id === id ? next : c)));
+  }, []);
+
   const wallpaper = wallpaperById(settings.wallpaperId);
 
   const openApp = (id: string, center: { x: number; y: number }) => {
@@ -174,7 +198,7 @@ export function Phone() {
 
   return (
     // 播放器套在最外面：退出音乐 app 歌还在放，audio 元素不跟着卸载。
-    <PlayerProvider apiBase={settings.musicApiBase}>
+    <PlayerProvider apiBase={settings.musicApiBase} onListened={onListened}>
     <div
       ref={device}
       className="device"
@@ -202,7 +226,11 @@ export function Phone() {
               onUnreadChange={() => void refreshBadges(contacts)}
             />
           ) : app.id === "music" ? (
-            <MusicApp settings={settings} />
+            <MusicApp
+              settings={settings}
+              contacts={contacts}
+              onChange={patchSettings}
+            />
           ) : app.id === "moments" ? (
             <MomentsApp contacts={contacts} settings={settings} />
           ) : app.id === "notes" ? (

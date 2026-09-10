@@ -40,9 +40,13 @@ export const usePlayer = () => {
 
 export function PlayerProvider({
   apiBase,
+  onListened,
   children,
 }: {
   apiBase: string;
+  /// 每放够一段就报一次。**计时放在这儿而不是音乐 app 里**——
+  /// 退出 app 歌还在放，计时也该还在走。
+  onListened?: (seconds: number) => void;
   children: React.ReactNode;
 }) {
   const audio = useRef<HTMLAudioElement>(null);
@@ -132,6 +136,15 @@ export function PlayerProvider({
       if (objUrl.current) URL.revokeObjectURL(objUrl.current);
     };
   }, []);
+
+  // 一起听的计时。
+  // ⚠️ 按「真的在放」计，不按墙上时间——暂停了就不该继续攒。
+  // 15 秒报一次：太密了每次都要写库，太疏了关掉页面丢的就多。
+  useEffect(() => {
+    if (!playing || !onListened) return;
+    const t = window.setInterval(() => onListened(15), 15_000);
+    return () => window.clearInterval(t);
+  }, [playing, onListened]);
 
   const value = useMemo<Ctl>(
     () => ({

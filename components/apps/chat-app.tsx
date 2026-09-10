@@ -19,6 +19,8 @@ import { boardText, loadNotes, type Note } from "@/lib/notes/store";
 import { PhotoImg } from "@/components/photos/photo-img";
 import { PhotoViewer } from "@/components/photos/photo-viewer";
 import { useBlobUrl } from "@/lib/use-blob-url";
+import { usePlayer } from "@/components/phone/player";
+import { PHONE, loadTracks, saveTrack, search as searchSongs } from "@/lib/music/store";
 import type { Settings } from "@/lib/os/settings";
 
 /// 发给上游的消息。比库里存的 Msg 多两样：assistant 可能带 tool_calls，
@@ -130,6 +132,7 @@ export function ChatApp({
   const [err, setErr] = useState<string | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const player = usePlayer();
 
   const contact = contacts.find((c) => c.id === openId) ?? null;
 
@@ -341,6 +344,31 @@ export function ChatApp({
         for (const c of wanted) {
           const out = await runTool(c.name, c.args, {
             contact,
+            // 播放器在壳里，工具层碰不到——这里把「怎么放歌」注入进去。
+            playSong: settings.musicApiBase.trim()
+              ? async (kw: string) => {
+                  const hits = await searchSongs(settings.musicApiBase.trim(), kw);
+                  // 优先挑能完整听的。**挑到只有试听的等于没放**——
+                  // 她按下去听 30 秒就断，那不是放歌是添堵。
+                  const pick = hits.find((h) => !h.vip) ?? hits[0];
+                  if (!pick) return `没搜到「${kw}」。`;
+                  const t = {
+                    id: newId(),
+                    contactId: PHONE,
+                    kind: "online" as const,
+                    title: pick.title,
+                    artist: pick.artist,
+                    songId: pick.songId,
+                    cover: pick.cover,
+                    at: Date.now(),
+                  };
+                  await saveTrack(t);
+                  player.play(t, await loadTracks());
+                  return pick.vip
+                    ? `放了《${pick.title}》，但这首只有试听片段。`
+                    : `放了《${pick.title}》- ${pick.artist}。`;
+                }
+              : undefined,
             refresh: async () => {
               setDiary(await loadDiary(contact.id));
               setMemory(await loadMemory(contact.id));

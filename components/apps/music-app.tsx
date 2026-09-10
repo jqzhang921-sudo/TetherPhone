@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   deleteTrack,
   loadTracks,
@@ -12,6 +12,8 @@ import {
   type Track,
 } from "@/lib/music/store";
 import { mmss, usePlayer } from "@/components/phone/player";
+import { completeOnce, identity } from "@/lib/ai";
+import { displayName, type Contact } from "@/lib/os/contacts";
 import { newId } from "@/lib/id";
 import type { Settings } from "@/lib/os/settings";
 
@@ -33,7 +35,23 @@ function Bars({ on }: { on: boolean }) {
   );
 }
 
-export function MusicApp({ settings }: { settings: Settings }) {
+/// 一起听了多久。**不满一分钟就说秒**——「一起听了 0 分钟」看着像坏了。
+function span(sec: number) {
+  if (sec < 60) return `${Math.floor(sec)} 秒`;
+  const m = Math.floor(sec / 60);
+  if (m < 60) return `${m} 分钟`;
+  return `${Math.floor(m / 60)} 小时 ${m % 60} 分`;
+}
+
+export function MusicApp({
+  settings,
+  contacts,
+  onChange,
+}: {
+  settings: Settings;
+  contacts: Contact[];
+  onChange: (p: Partial<Settings>) => void;
+}) {
   const p = usePlayer();
   const [tracks, setTracks] = useState<Track[]>([]);
   const [tab, setTab] = useState<"lib" | "find">("lib");
@@ -42,8 +60,54 @@ export function MusicApp({ settings }: { settings: Settings }) {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [words, setWords] = useState<string | null>(null);
+  const [remark, setRemark] = useState<string | null>(null);
+  /// 每首只问一次。不加这个，进度更新会把它反复叫醒。
+  const asked = useRef<string | null>(null);
+
+  const together = contacts.find((c) => c.id === settings.togetherWith) ?? null;
 
   const base = settings.musicApiBase.trim();
+
+  /// 换了一首歌，它可能想说一句。
+  ///
+  /// ⚠️ 提示词里**明说它听不到声音**，只看得到歌名和歌词。不说这句，它会写出
+  /// 「这个前奏真好听」这种它根本没听到的话——那是演，不是陪着。
+  ///
+  /// ⚠️ 它可以回「不说」，而且提示词里写了这是常有的事。换一首就非要评一句，
+  /// 就成了每首歌都要交作业。
+  useEffect(() => {
+    const t = p.track;
+    if (!together || !t || !settings.apiKey) return;
+    if (asked.current === t.id) return;
+    asked.current = t.id;
+    setRemark(null);
+    void (async () => {
+      try {
+        let lrc = "";
+        if (t.kind === "online" && t.songId && base) {
+          lrc = (await fetchLyric(base, t.songId)).replace(/\[[\d:.]+\]/g, "").trim().slice(0, 300);
+        }
+        const said = await completeOnce(
+          settings,
+          together,
+          [
+            ...identity(together, settings),
+            `你们在一起听歌。现在放的是《${t.title}》${t.artist ? " - " + t.artist : ""}。`,
+            lrc ? `歌词（节选）：\n${lrc}` : "",
+            "**你听不到声音**，只看得到歌名和歌词——别写「这个前奏真好听」这种你没听到的话。",
+            "想说点什么就只输出那句话（一句，短，像并排坐着随口说的）；",
+            "没什么想说的就输出「不说」——**这也是常有的事，别硬凑**。",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        );
+        const w = said.trim();
+        if (w && !/^(不说|没有|无|不评论)$/.test(w)) setRemark(w);
+      } catch {
+        // 说不出来就算了，不该让一句闲话变成一条报错
+      }
+    })();
+  }, [p.track, together, settings, base]);
   const refresh = useCallback(async () => setTracks(await loadTracks()), []);
   useEffect(() => {
     void refresh();
@@ -170,6 +234,53 @@ export function MusicApp({ settings }: { settings: Settings }) {
           {p.err && (
             <p className="text-[11px] pt-1" style={{ color: "oklch(0.65 0.19 25)" }}>
               {p.err}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* 一起听。**主题就是那两个头像和累计时间**，别的都别加——
+          唱片转不转不重要，「有人和你在同一首歌里」才是这件事本身。 */}
+      {contacts.length > 0 && (
+        <div className="shrink-0 px-4 pb-2">
+          <div className="flex items-center gap-2">
+            <span className="flex items-center -space-x-2">
+              <span
+                className="w-7 h-7 rounded-full grid place-items-center text-[14px] ring-2"
+                style={{ background: "oklch(0.7 0.02 250)", ["--tw-ring-color" as string]: "var(--glass-tint)" }}
+              >
+                {settings.userEmoji}
+              </span>
+              {contacts.map((c) => {
+                const on = c.id === settings.togetherWith;
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => onChange({ togetherWith: on ? "" : c.id })}
+                    className="w-7 h-7 rounded-full grid place-items-center text-[14px] ring-2 transition-opacity"
+                    style={{
+                      background: c.tint,
+                      opacity: on ? 1 : 0.35,
+                      ["--tw-ring-color" as string]: "var(--glass-tint)",
+                    }}
+                  >
+                    {c.emoji}
+                  </button>
+                );
+              })}
+            </span>
+            <span className="text-[11px]" style={{ color: "var(--ink-faint)" }}>
+              {together
+                ? `和${displayName(together)}一起听了 ${span(together.together ?? 0)}`
+                : "自己听 · 点头像叫上它"}
+            </span>
+          </div>
+
+          {together && remark && (
+            <p className="text-[12px] leading-relaxed pt-1.5 pl-1" style={{ color: "var(--ink-dim)" }}>
+              <span style={{ color: together.tint }}>{displayName(together)}</span>
+              <span style={{ color: "var(--ink-faint)" }}>：</span>
+              {remark}
             </p>
           )}
         </div>

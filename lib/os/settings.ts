@@ -19,6 +19,8 @@ export type Settings = {
   /// 在线音源的地址。留空 = 只有本地文件，在线那部分整个隐藏。
   /// **服务不在这个 App 里**——谁要在线音乐谁自己跑一个。
   musicApiBase: string;
+  /// 在和谁一起听。空 = 自己听。
+  togetherWith: string;
 
   /// ⚠️ 下面两个是旧版遗留，只用来在第一次启动时把老数据搬进联系人。
   /// 设置页不再编辑它们。见 contacts.ensureSeed。
@@ -36,6 +38,7 @@ export const DEFAULT_SETTINGS: Settings = {
   userSignature: "",
   weatherPlace: "",
   musicApiBase: "",
+  togetherWith: "",
 };
 
 const KEY = "tether.settings.v1";

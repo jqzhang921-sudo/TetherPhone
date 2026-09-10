@@ -29,6 +29,9 @@ export type ToolCtx = {
   contact: Contact;
   /// 工具改完数据后让 UI 重新读一遍
   refresh: () => Promise<void>;
+  /// 放一首歌。**由聊天页注入**——播放器住在壳里，工具层不该知道音乐怎么实现。
+  /// 没配音源时这个是 undefined，工具会如实说放不了。
+  playSong?: (keyword: string) => Promise<string>;
 };
 
 export const TOOLS = [
@@ -146,6 +149,20 @@ export const TOOLS = [
   {
     type: "function",
     function: {
+      name: "play_song",
+      description:
+        "放一首歌给她听。你们在一起听的时候，她那边会看到是你放的。" +
+        "参数写歌名，最好带上歌手（「晴天 周杰伦」比「晴天」准）。",
+      parameters: {
+        type: "object",
+        properties: { keyword: { type: "string", description: "歌名，最好带歌手" } },
+        required: ["keyword"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "forget",
       description: "删掉一个话题。删了就没了，她也看得到少了一条。",
       parameters: {
@@ -174,6 +191,9 @@ export const toolRules = [
   "",
   "动态（post_moment）是发给「看到的人」的，不是发给她一个人的。",
   "想单独跟她说就直接说——把话写成动态再让她去看，是绕远路。",
+  "",
+  "你可以给她放歌（play_song）。**但别把它当回应用**——她说累了你就放一首",
+  "「治愈的歌」，那是敷衍。想放是因为你想到了某一首，不是因为该说点什么。",
 ].join("\n");
 
 /// 把它锁着的日记列给它看。**给全文**——那是它自己写的东西，
@@ -324,6 +344,13 @@ export async function runTool(
     await saveNote({ ...hit, done: true, doneAt: Date.now() });
     await ctx.refresh();
     return `勾掉了：${hit.text}`;
+  }
+
+  if (name === "play_song") {
+    const kw = String(args.keyword ?? "").trim();
+    if (!kw) return "得说放什么。";
+    if (!ctx.playSong) return "她还没配音源，我放不了歌。";
+    return ctx.playSong(kw);
   }
 
   if (name === "post_moment") {
