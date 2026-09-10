@@ -21,7 +21,9 @@ type Body = {
   apiKey?: string;
   model?: string;
   system?: string;
-  messages?: { role: string; content: string | unknown[] }[];
+  messages?: { role: string; content: string | unknown[] | null; [k: string]: unknown }[];
+  /// OpenAI 那套 function calling 的工具表。原样透传。
+  tools?: unknown[];
 };
 
 export async function POST(req: Request) {
@@ -32,7 +34,7 @@ export async function POST(req: Request) {
     return new Response("请求不是合法 JSON", { status: 400 });
   }
 
-  const { apiBase, apiKey, model, system, messages } = body;
+  const { apiBase, apiKey, model, system, messages, tools } = body;
   if (!apiKey) return new Response("没有 API key", { status: 400 });
   if (!messages?.length) return new Response("没有消息", { status: 400 });
 
@@ -51,6 +53,7 @@ export async function POST(req: Request) {
         ...(system?.trim() ? [{ role: "system", content: system.trim() }] : []),
         ...messages,
       ],
+      ...(tools?.length ? { tools } : {}),
     }),
   }).catch((e: unknown) => e instanceof Error ? e : new Error(String(e)));
 

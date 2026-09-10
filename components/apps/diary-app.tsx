@@ -425,11 +425,12 @@ export function DiaryApp({
               const recent = await loadMsgs(contact.id);
               const text = await askForDiary(settings, contact, recent);
               if (!text) throw new Error("它没写出东西");
-              // 默认可见。
-              // ⚠️ 「它也有一页锁着不给你看」是个更狠的设计，Cleo 还没拍板
-              //（见 docs/ROADMAP.md 的待定），所以**不默认打开**。
-              // 下面读页面里的锁态渲染已经写好了，她点头就只改这一行。
-              await saveEntry({ ...blankEntry(contact.id, "them"), text, secret: false, paperTint: "sand" });
+              // 默认锁着——它也该有不给你看的一页。
+              //
+              // ⚠️ 这一条成立的前提是**它自己能开**（open_diary 工具，见 lib/tools.ts）。
+              // 在有那个工具之前不能这么做：锁上就永远打不开，那不是"它有秘密"，
+              // 是"这功能坏了"。做「交换」（你开一篇它开一篇）也不行——那是交易。
+              await saveEntry({ ...blankEntry(contact.id, "them"), text, secret: true, paperTint: "sand" });
               await refresh(contact.id);
             } catch (err) {
               setNote(err instanceof Error ? err.message : String(err));

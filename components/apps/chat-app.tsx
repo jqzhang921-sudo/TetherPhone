@@ -13,12 +13,22 @@ import {
   toDataUrl,
   type Photo,
 } from "@/lib/photos/store";
+import { TOOLS, lockedPages, runTool, toolRules } from "@/lib/tools";
 import { PhotoImg } from "@/components/photos/photo-img";
 import { PhotoViewer } from "@/components/photos/photo-viewer";
 import { useBlobUrl } from "@/lib/use-blob-url";
 import type { Settings } from "@/lib/os/settings";
 
-function systemPrompt(c: Contact, me: Settings, shared: DiaryEntry[]) {
+/// 发给上游的消息。比库里存的 Msg 多两样：assistant 可能带 tool_calls，
+/// tool 角色要带 tool_call_id。
+type ApiMsg = {
+  role: string;
+  content: string | unknown[] | null;
+  tool_calls?: unknown[];
+  tool_call_id?: string;
+};
+
+function systemPrompt(c: Contact, me: Settings, shared: DiaryEntry[], locked: string) {
   const bits: string[] = [];
   if (c.name.trim()) bits.push(`你叫${c.name.trim()}。`);
   if (me.userName.trim()) bits.push(`跟你说话的人叫${me.userName.trim()}。`);
@@ -36,6 +46,14 @@ function systemPrompt(c: Contact, me: Settings, shared: DiaryEntry[]) {
           .join("\n"),
     );
   }
+
+  // ⚠️ **注册了工具 ≠ 它会用。** 工具描述只回答「怎么用」，不回答「现在该不该用」——
+  // 什么时候该开一页日记，必须另写一段规矩。这条在 phone-ai-assistant 里
+  // 反复踩过（remember 那几个、follow_up_later 都一样）。
+  bits.push(toolRules);
+  // 它锁着的那几页。不给它看的话，它根本不知道有东西可开。
+  if (locked) bits.push(locked);
+
   return bits.join("\n");
 }
 
@@ -184,10 +202,10 @@ export function ChatApp({
     try {
       // 带图的那条按 OpenAI 多模态格式发。**不猜模型能不能看图**——
       // 按名字猜能力是错的，会把图悄悄丢掉且查不出原因。发过去让上游说话。
-      const payload = await Promise.all(
+      const convo: ApiMsg[] = await Promise.all(
         history
           .filter((m) => m.role !== "event")
-          .map(async (m) => {
+          .map(async (m): Promise<ApiMsg> => {
             const ids = m.photoIds ?? [];
             if (!ids.length) return { role: m.role, content: m.content };
             const parts: unknown[] = [];
@@ -203,61 +221,109 @@ export function ChatApp({
           }),
       );
 
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          apiBase: settings.apiBase,
-          apiKey: settings.apiKey,
-          model: contact.model.trim() || settings.model,
-          system: systemPrompt(contact, settings, diary),
-          messages: payload,
-        }),
-      });
-      if (!res.ok || !res.body) throw new Error((await res.text()) || `HTTP ${res.status}`);
-
-      const reader = res.body.getReader();
-      const dec = new TextDecoder();
-      // ⚠️ 跨分片缓冲。SSE 的一行经常被切在两个网络分片里，按分片切行会把
-      // 被切开的那行两半都丢掉——症状是长回复零星掉字，不是尾部截断。
-      let buf = "";
-      let acc = "";
+      const sys = systemPrompt(contact, settings, diary, await lockedPages(contact.id));
       const replyId = newId();
+      let visible = "";
 
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const lines = buf.split("\n");
-        buf = lines.pop() ?? "";
-        for (const line of lines) {
-          const t = line.trim();
-          if (!t.startsWith("data:")) continue;
-          const chunk = t.slice(5).trim();
-          if (chunk === "[DONE]") continue;
-          try {
-            const delta = JSON.parse(chunk)?.choices?.[0]?.delta?.content;
-            if (typeof delta === "string" && delta) {
-              acc += delta;
-              setMsgs((prev) => [
-                ...prev.filter((m) => m.id !== replyId),
-                {
-                  id: replyId,
-                  contactId: contact.id,
-                  role: "assistant" as const,
-                  content: acc,
-                  at: Date.now(),
-                },
-              ]);
+      // 工具轮次。**封三轮是保险丝**：模型偶尔会陷进「调用 → 看结果 → 再调用」
+      // 的圈里，没有上限就一直烧钱。
+      for (let round = 0; round < 3; round++) {
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            apiBase: settings.apiBase,
+            apiKey: settings.apiKey,
+            model: contact.model.trim() || settings.model,
+            system: sys,
+            messages: convo,
+            tools: TOOLS,
+          }),
+        });
+        if (!res.ok || !res.body) throw new Error((await res.text()) || `HTTP ${res.status}`);
+
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        // ⚠️ 跨分片缓冲。SSE 的一行经常被切在两个网络分片里，按分片切行会把
+        // 被切开的那行两半都丢掉——症状是长回复零星掉字，不是尾部截断。
+        let buf = "";
+        let said = "";
+        // ⚠️ **工具调用的参数是一片一片来的**，要按 index 拼起来。
+        // 对每个分片单独 JSON.parse 必然失败——这是接 function calling
+        // 最容易踩的一脚，而且症状是"工具从来不触发"，看不出是解析问题。
+        const calls: { id: string; name: string; args: string }[] = [];
+
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const lines = buf.split("\n");
+          buf = lines.pop() ?? "";
+          for (const line of lines) {
+            const t = line.trim();
+            if (!t.startsWith("data:")) continue;
+            const chunk = t.slice(5).trim();
+            if (chunk === "[DONE]") continue;
+            try {
+              const delta = JSON.parse(chunk)?.choices?.[0]?.delta;
+              if (typeof delta?.content === "string" && delta.content) {
+                said += delta.content;
+                const shown = visible + said;
+                setMsgs((prev) => [
+                  ...prev.filter((m) => m.id !== replyId),
+                  {
+                    id: replyId,
+                    contactId: contact.id,
+                    role: "assistant" as const,
+                    content: shown,
+                    at: Date.now(),
+                  },
+                ]);
+              }
+              for (const tc of delta?.tool_calls ?? []) {
+                const i = tc.index ?? 0;
+                calls[i] ??= { id: "", name: "", args: "" };
+                if (tc.id) calls[i].id = tc.id;
+                if (tc.function?.name) calls[i].name = tc.function.name;
+                if (tc.function?.arguments) calls[i].args += tc.function.arguments;
+              }
+            } catch {
+              // 单个分片解析不了就跳过这一行，别让整条流断掉
             }
-          } catch {
-            // 单个分片解析不了就跳过这一行，别让整条流断掉
           }
         }
+
+        visible += said;
+        const wanted = calls.filter((c) => c?.name);
+        if (!wanted.length) break;
+
+        convo.push({
+          role: "assistant",
+          content: said || null,
+          tool_calls: wanted.map((c) => ({
+            id: c.id,
+            type: "function",
+            function: { name: c.name, arguments: c.args },
+          })),
+        });
+
+        for (const c of wanted) {
+          const out = await runTool(c.name, c.args, {
+            contact,
+            refresh: async () => setDiary(await loadDiary(contact.id)),
+          });
+          // 结果原样回给它。**失败也要说清楚**——静默失败会让它以为成功了。
+          convo.push({ role: "tool", tool_call_id: c.id, content: out });
+        }
       }
-      void saveMsgs([
-        { id: replyId, contactId: contact.id, role: "assistant", content: acc, at: Date.now() },
-      ]);
+
+      if (visible.trim()) {
+        await saveMsgs([
+          { id: replyId, contactId: contact.id, role: "assistant", content: visible, at: Date.now() },
+        ]);
+      }
+      // 工具可能往对话里插了 event 行，重新读一遍才看得到
+      setMsgs(await loadMsgs(contact.id));
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
       setMsgs(history);
