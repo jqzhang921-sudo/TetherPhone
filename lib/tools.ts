@@ -12,6 +12,7 @@ import {
   type Kind,
 } from "@/lib/memory/store";
 import { blankNote, loadNotes, saveNote } from "@/lib/notes/store";
+import { blankPost, savePost } from "@/lib/moments/store";
 import { newId, saveMsgs, type Msg } from "@/lib/chat/store";
 import { displayName, type Contact } from "@/lib/os/contacts";
 
@@ -131,6 +132,20 @@ export const TOOLS = [
   {
     type: "function",
     function: {
+      name: "post_moment",
+      description:
+        "发一条动态。她会在动态那儿看到，能点赞、能评论。" +
+        "这是发给「看到的人」的，不是发给她一个人的——想单独跟她说就直接说，别发动态。",
+      parameters: {
+        type: "object",
+        properties: { text: { type: "string", description: "动态正文，短一点" } },
+        required: ["text"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "forget",
       description: "删掉一个话题。删了就没了，她也看得到少了一条。",
       parameters: {
@@ -156,6 +171,9 @@ export const toolRules = [
   "备忘录那块板你也能写（add_note）。但**板上有什么 ≠ 该开口提**——",
   "复述她自己写的待办就是催。同一件事最多提一次，而且要带来新东西",
   "（「你说的那个快递，驿站六点关门」是带来；「你那个快递还没去拿吧」说第二遍就变味了）。",
+  "",
+  "动态（post_moment）是发给「看到的人」的，不是发给她一个人的。",
+  "想单独跟她说就直接说——把话写成动态再让她去看，是绕远路。",
 ].join("\n");
 
 /// 把它锁着的日记列给它看。**给全文**——那是它自己写的东西，
@@ -306,6 +324,14 @@ export async function runTool(
     await saveNote({ ...hit, done: true, doneAt: Date.now() });
     await ctx.refresh();
     return `勾掉了：${hit.text}`;
+  }
+
+  if (name === "post_moment") {
+    const text = String(args.text ?? "").trim();
+    if (!text) return "内容不能空。";
+    await savePost(blankPost(ctx.contact.id, "them", text));
+    await ctx.refresh();
+    return `发出去了：${text.slice(0, 40)}`;
   }
 
   return `没有叫 ${name} 的工具。`;

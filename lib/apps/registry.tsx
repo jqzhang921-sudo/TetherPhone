@@ -47,6 +47,7 @@ export const APPS: AppDef[] = [
     name: "动态",
     tint: "oklch(0.74 0.15 30)",
     dock: true,
+    ready: true,
     icon: <Icon><circle cx="12" cy="12" r="3.2" /><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4" /></Icon>,
   },
   {
@@ -85,12 +86,6 @@ export const APPS: AppDef[] = [
     tint: "oklch(0.72 0.13 300)",
     ready: true,
     icon: <Icon><path d="M12 4.5a4 4 0 0 0-4 4v.4A3.2 3.2 0 0 0 6.4 15v.3A3.2 3.2 0 0 0 12 17.6z" /><path d="M12 4.5a4 4 0 0 1 4 4v.4A3.2 3.2 0 0 1 17.6 15v.3A3.2 3.2 0 0 1 12 17.6z" /><path d="M12 17.6V20" /></Icon>,
-  },
-  {
-    id: "persona",
-    name: "人设",
-    tint: "oklch(0.74 0.12 340)",
-    icon: <Icon><circle cx="12" cy="8.5" r="3.5" /><path d="M5 20a7 7 0 0 1 14 0" /></Icon>,
   },
   {
     id: "contacts",

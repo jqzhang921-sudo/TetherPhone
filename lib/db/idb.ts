@@ -11,7 +11,10 @@
 /// 导出备份（lib/os/backup.ts）是兜最坏情况的那一层。
 
 const DB_NAME = "tether";
-const DB_VERSION = 1;
+/// ⚠️ **加新表要把这个数字 +1。** onupgradeneeded 只在版本变大时才跑，
+/// 而它只创建缺的表、不动已有数据——所以升级对老用户是无损的。
+/// 忘了加版本号的症状是「新表不存在」，而不是报错。
+const DB_VERSION = 2;
 
 export const STORES = [
   "contacts",
@@ -21,6 +24,8 @@ export const STORES = [
   "letters",
   "memory",
   "notes",
+  "posts",
+  "comments",
 ] as const;
 export type StoreName = (typeof STORES)[number];
 
@@ -122,6 +127,36 @@ export async function remove(store: StoreName, id: string): Promise<void> {
   } catch {
     /* 同上 */
   }
+}
+
+/// 在**一个事务里**读了再写。
+///
+/// ⚠️ 这是「先占坑再干慢活」唯一靠得住的做法。`getAll` 之后再 `put` 是两个事务，
+/// 中间那道缝里另一个调用能读到同一条数据——两边都以为自己抢到了。
+/// IndexedDB 会把同一张表上重叠的 readwrite 事务排队，所以放进同一个事务就安全了。
+///
+/// `fn` 里**只能做 IDB 请求**，不能 await 别的 Promise：一旦让出微任务队列
+/// 而事务里没有待处理的请求，事务就自动关了。
+export function claim<T>(
+  store: StoreName,
+  fn: (s: IDBObjectStore, done: (v: T) => void, fail: (e: unknown) => void) => void,
+): Promise<T | null> {
+  return open().then(
+    (db) =>
+      new Promise<T | null>((resolve, reject) => {
+        const tx = db.transaction(store, "readwrite");
+        let out: T | null = null;
+        fn(
+          tx.objectStore(store),
+          (v) => {
+            out = v;
+          },
+          reject,
+        );
+        tx.oncomplete = () => resolve(out);
+        tx.onerror = () => reject(tx.error);
+      }),
+  ).catch(() => null);
 }
 
 export async function clearStore(store: StoreName): Promise<void> {

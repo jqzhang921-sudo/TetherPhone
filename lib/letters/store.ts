@@ -1,5 +1,5 @@
 "use client";
-import { getAllBy, put, remove } from "@/lib/db/idb";
+import { claim, getAllBy, put, remove } from "@/lib/db/idb";
 import { newId } from "@/lib/id";
 import type { PaperRule } from "@/lib/paper";
 
@@ -60,6 +60,27 @@ export async function loadLetters(contactId: string): Promise<Letter[]> {
 
 export const saveLetter = (l: Letter) => put("letters", l);
 export const deleteLetter = (id: string) => remove("letters", id);
+
+/// 原子地挑一封「到点该回、还没回」的信并当场占坑。
+///
+/// ⚠️ 和动态那边同一个理由：写一封信要好几秒，挑和占分成两步的话，
+/// 这几秒里另一个调用会挑中同一封，于是回两封。
+export function claimDue(contactId: string): Promise<Letter | null> {
+  return claim<Letter>("letters", (store, done, fail) => {
+    const req = store.index("contactId").getAll(contactId);
+    req.onsuccess = () => {
+      const hit = (req.result as Letter[]).find(
+        (l) => l.author === "me" && !l.replied && l.replyDueAt != null && l.replyDueAt <= Date.now(),
+      );
+      if (!hit) return;
+      const taken = { ...hit, replied: true };
+      const w = store.put(taken);
+      w.onsuccess = () => done(taken);
+      w.onerror = () => fail(w.error);
+    };
+    req.onerror = () => fail(req.error);
+  });
+}
 
 export function blankLetter(contactId: string, author: Letter["author"]): Letter {
   return {

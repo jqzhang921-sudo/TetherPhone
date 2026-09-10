@@ -12,6 +12,7 @@ import { WeatherApp } from "@/components/apps/weather-app";
 import { PhotosApp } from "@/components/apps/photos-app";
 import { MemoryApp } from "@/components/apps/memory-app";
 import { NotesApp } from "@/components/apps/notes-app";
+import { MomentsApp } from "@/components/apps/moments-app";
 import { SettingsApp } from "@/components/apps/settings-app";
 import { PlaceholderApp } from "@/components/apps/placeholder-app";
 import { appById } from "@/lib/apps/registry";
@@ -196,6 +197,8 @@ export function Phone() {
               settings={settings}
               onUnreadChange={() => void refreshBadges(contacts)}
             />
+          ) : app.id === "moments" ? (
+            <MomentsApp contacts={contacts} settings={settings} />
           ) : app.id === "notes" ? (
             <NotesApp contacts={contacts} />
           ) : app.id === "memory" ? (

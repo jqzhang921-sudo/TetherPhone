@@ -7,6 +7,7 @@ import {
   deleteLetter,
   envelopeCss,
   loadLetters,
+  claimDue,
   replyDelay,
   saveLetter,
   type Letter,
@@ -76,7 +77,6 @@ export function LettersApp({
   const [note, setNote] = useState<string | null>(null);
   const [photos, setPhotos] = useState<Record<string, Photo>>({});
   const [picking, setPicking] = useState(false);
-
   const contact = contacts.find((c) => c.id === who) ?? contacts[0] ?? null;
 
   const refresh = useCallback(
@@ -99,11 +99,11 @@ export function LettersApp({
   /// 这不是妥协——信本来就该是「你回来的时候它在那儿」。
   const settle = useCallback(
     async (c: Contact) => {
-      const all = await loadLetters(c.id);
-      const due = all.find(
-        (l) => l.author === "me" && !l.replied && l.replyDueAt != null && l.replyDueAt <= Date.now(),
-      );
-      if (!due || !settings.apiKey) return;
+      if (!settings.apiKey) return;
+      // 挑和占在同一个事务里完成。抢不到就直接回——ref 挡不住组件重新挂载，
+      // 只有事务挡得住。
+      const due = await claimDue(c.id);
+      if (!due) return;
 
       setBusy(true);
       try {
@@ -129,7 +129,6 @@ export function LettersApp({
         );
         if (!text) return;
 
-        await saveLetter({ ...due, replied: true });
         await saveLetter({
           ...blankLetter(c.id, "them"),
           text,
@@ -138,6 +137,8 @@ export function LettersApp({
         });
         await refresh(c.id);
       } catch (e) {
+        // 写失败就把坑退回去。**丢一封信比回两封更糟**——她在等。
+        await saveLetter({ ...due, replied: false });
         setNote(e instanceof Error ? e.message : String(e));
       } finally {
         setBusy(false);
