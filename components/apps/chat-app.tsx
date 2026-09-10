@@ -14,6 +14,7 @@ import {
   type Photo,
 } from "@/lib/photos/store";
 import { TOOLS, lockedPages, runTool, toolRules } from "@/lib/tools";
+import { digest, loadMemory, type MemoryTopic } from "@/lib/memory/store";
 import { PhotoImg } from "@/components/photos/photo-img";
 import { PhotoViewer } from "@/components/photos/photo-viewer";
 import { useBlobUrl } from "@/lib/use-blob-url";
@@ -28,7 +29,13 @@ type ApiMsg = {
   tool_call_id?: string;
 };
 
-function systemPrompt(c: Contact, me: Settings, shared: DiaryEntry[], locked: string) {
+function systemPrompt(
+  c: Contact,
+  me: Settings,
+  shared: DiaryEntry[],
+  locked: string,
+  mem: MemoryTopic[],
+) {
   const bits: string[] = [];
   if (c.name.trim()) bits.push(`你叫${c.name.trim()}。`);
   if (me.userName.trim()) bits.push(`跟你说话的人叫${me.userName.trim()}。`);
@@ -50,6 +57,12 @@ function systemPrompt(c: Contact, me: Settings, shared: DiaryEntry[], locked: st
   // ⚠️ **注册了工具 ≠ 它会用。** 工具描述只回答「怎么用」，不回答「现在该不该用」——
   // 什么时候该开一页日记，必须另写一段规矩。这条在 phone-ai-assistant 里
   // 反复踩过（remember 那几个、follow_up_later 都一样）。
+  // 记忆的**摘要**常驻。细节不进——那是 open_memory 的活儿。
+  // 顺序按「多久变一次」排：名字 → 人设 → 记忆 → 规矩 → 锁着的页，
+  // 越靠前越稳定，KV 缓存才吃得住。
+  const d = digest(mem);
+  if (d) bits.push(d);
+
   bits.push(toolRules);
   // 它锁着的那几页。不给它看的话，它根本不知道有东西可开。
   if (locked) bits.push(locked);
@@ -101,6 +114,7 @@ export function ChatApp({
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const [diary, setDiary] = useState<DiaryEntry[]>([]);
   const [photos, setPhotos] = useState<Record<string, Photo>>({});
+  const [memory, setMemory] = useState<MemoryTopic[]>([]);
   const [pending, setPending] = useState<{ blob: Blob; w: number; h: number }[]>([]);
   const [viewing, setViewing] = useState<Photo | null>(null);
   const [text, setText] = useState("");
@@ -139,6 +153,7 @@ export function ChatApp({
     let alive = true;
     void loadMsgs(openId).then((rows) => alive && setMsgs(rows));
     void loadDiary(openId).then((rows) => alive && setDiary(rows));
+    void loadMemory(openId).then((rows) => alive && setMemory(rows));
     void refreshPhotos(openId);
     return () => {
       alive = false;
@@ -221,7 +236,13 @@ export function ChatApp({
           }),
       );
 
-      const sys = systemPrompt(contact, settings, diary, await lockedPages(contact.id));
+      const sys = systemPrompt(
+        contact,
+        settings,
+        diary,
+        await lockedPages(contact.id),
+        memory,
+      );
       const replyId = newId();
       let visible = "";
 
@@ -310,7 +331,10 @@ export function ChatApp({
         for (const c of wanted) {
           const out = await runTool(c.name, c.args, {
             contact,
-            refresh: async () => setDiary(await loadDiary(contact.id)),
+            refresh: async () => {
+              setDiary(await loadDiary(contact.id));
+              setMemory(await loadMemory(contact.id));
+            },
           });
           // 结果原样回给它。**失败也要说清楚**——静默失败会让它以为成功了。
           convo.push({ role: "tool", tool_call_id: c.id, content: out });
@@ -330,7 +354,7 @@ export function ChatApp({
     } finally {
       setBusy(false);
     }
-  }, [text, pending, busy, contact, msgs, settings, diary, photos, refreshPhotos]);
+  }, [text, pending, busy, contact, msgs, settings, diary, memory, photos, refreshPhotos]);
 
   // ── 会话列表 ────────────────────────────────────────────────
   if (!contact) {

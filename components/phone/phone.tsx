@@ -10,6 +10,7 @@ import { DiaryApp } from "@/components/apps/diary-app";
 import { LettersApp } from "@/components/apps/letters-app";
 import { WeatherApp } from "@/components/apps/weather-app";
 import { PhotosApp } from "@/components/apps/photos-app";
+import { MemoryApp } from "@/components/apps/memory-app";
 import { SettingsApp } from "@/components/apps/settings-app";
 import { PlaceholderApp } from "@/components/apps/placeholder-app";
 import { appById } from "@/lib/apps/registry";
@@ -134,6 +135,8 @@ export function Phone() {
               settings={settings}
               onUnreadChange={() => void refreshBadges(contacts)}
             />
+          ) : app.id === "memory" ? (
+            <MemoryApp contacts={contacts} />
           ) : app.id === "photos" ? (
             <PhotosApp contacts={contacts} />
           ) : app.id === "weather" ? (

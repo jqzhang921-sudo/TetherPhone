@@ -83,6 +83,7 @@ export const APPS: AppDef[] = [
     id: "memory",
     name: "记忆",
     tint: "oklch(0.72 0.13 300)",
+    ready: true,
     icon: <Icon><path d="M12 4.5a4 4 0 0 0-4 4v.4A3.2 3.2 0 0 0 6.4 15v.3A3.2 3.2 0 0 0 12 17.6z" /><path d="M12 4.5a4 4 0 0 1 4 4v.4A3.2 3.2 0 0 1 17.6 15v.3A3.2 3.2 0 0 1 12 17.6z" /><path d="M12 17.6V20" /></Icon>,
   },
   {
