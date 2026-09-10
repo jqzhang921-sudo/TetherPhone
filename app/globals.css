@@ -57,8 +57,13 @@
   --glass-alpha-strong: 68%;
   --glass-blur: 20px;
 
-  /* 浅底：不画描边，靠阴影把卡片从背景里托起来 */
-  --glass-edge: transparent;
+  /* ⚠️ 浅底原来是「不画描边、靠阴影托起来」。压在纯色页面上成立，
+     压在照片壁纸上不成立：阴影落在花背景里看不见，玻璃又被壁纸下限
+     顶到六成不透明，于是只剩一块半透明的板——没有边、没有高光，
+     眼睛没有任何线索说这是一片玻璃。边和高光才是「玻璃感」的来源，
+     不是模糊：模糊一直在，但它在平坦的背景上不产生任何可见差别。 */
+  --glass-edge: oklch(1 0 0 / 0.62);
+  --glass-sheen: inset 0 1px 0 oklch(1 0 0 / 0.72);
   --glass-shadow: 0 1px 2px oklch(0 0 0 / 0.06), 0 8px 24px oklch(0 0 0 / 0.10);
 }
 
@@ -74,8 +79,12 @@
   --glass-blur: 20px;
 
   /* 深底：黑影看不见，靠一道暖白亮边划出卡片的界 */
-  --glass-edge: oklch(1 0 0 / 0.14);
-  --glass-shadow: none;
+  --glass-edge: oklch(1 0 0 / 0.16);
+  --glass-sheen: inset 0 1px 0 oklch(1 0 0 / 0.10);
+  /* ⚠️ 这里不能写 none。它要和 --glass-sheen 一起进同一条逗号分隔的
+     box-shadow，`none` 混在列表里会让**整条**声明作废，连高光一起没。
+     要「没有阴影」就写一个全透明的阴影。 */
+  --glass-shadow: 0 0 0 0 oklch(0 0 0 / 0);
 }
 
 * { -webkit-tap-highlight-color: transparent; }
@@ -112,7 +121,7 @@ body {
   backdrop-filter: blur(var(--glass-blur)) saturate(1.9);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.9);
   border: 1px solid var(--glass-edge);
-  box-shadow: var(--glass-shadow);
+  box-shadow: var(--glass-sheen), var(--glass-shadow);
 }
 
 /* 要压住文字的那种，透明度再高一档 */
@@ -121,7 +130,7 @@ body {
   backdrop-filter: blur(var(--glass-blur)) saturate(1.9);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.9);
   border: 1px solid var(--glass-edge);
-  box-shadow: var(--glass-shadow);
+  box-shadow: var(--glass-sheen), var(--glass-shadow);
 }
 
 /* 图标那种小方块：模糊更小，省得十几个同屏时糊成一片 */
@@ -130,7 +139,7 @@ body {
   backdrop-filter: blur(14px) saturate(2);
   -webkit-backdrop-filter: blur(14px) saturate(2);
   border: 1px solid var(--glass-edge);
-  box-shadow: var(--glass-shadow);
+  box-shadow: var(--glass-sheen), var(--glass-shadow);
 }
 
 /* ── 动效 ───────────────────────────────────────────────────── */
