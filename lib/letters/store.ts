@@ -19,6 +19,8 @@ export type Letter = {
   paperTint: string;
   paperRule: PaperRule;
   envelope: string;
+  /// 随信寄的图。只存 id，图在 photos 表里。
+  photoIds?: string[];
   /// 寄出的时刻。信没有草稿态——**写了就寄**，攒着不发的信是备忘录不是信。
   sentAt: number;
   /// 拆开的时刻。null = 还封着。

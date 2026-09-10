@@ -13,6 +13,9 @@ import {
 } from "@/lib/letters/store";
 import { PAPER_RULES, PAPER_TINTS, handInk, paperStyle, type PaperRule } from "@/lib/paper";
 import { completeOnce, identity } from "@/lib/ai";
+import { loadPhotos, type Photo } from "@/lib/photos/store";
+import { PhotoImg } from "@/components/photos/photo-img";
+import { PhotoPicker } from "@/components/photos/photo-picker";
 import { loadMsgs } from "@/lib/chat/store";
 import { displayName, type Contact } from "@/lib/os/contacts";
 import type { Settings } from "@/lib/os/settings";
@@ -70,6 +73,8 @@ export function LettersApp({
   const [draft, setDraft] = useState<Letter | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<Record<string, Photo>>({});
+  const [picking, setPicking] = useState(false);
 
   const contact = contacts.find((c) => c.id === who) ?? contacts[0] ?? null;
 
@@ -142,6 +147,9 @@ export function LettersApp({
 
   useEffect(() => {
     if (!contact) return;
+    void loadPhotos(contact.id).then((all) =>
+      setPhotos(Object.fromEntries(all.map((p) => [p.id, p]))),
+    );
     void refresh(contact.id).then(() => void settle(contact));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [who]);
@@ -192,14 +200,32 @@ export function LettersApp({
             className="h-full rounded-2xl p-5 overflow-hidden"
             style={{ ...paperStyle(draft.paperTint, draft.paperRule), boxShadow: "0 8px 28px oklch(0 0 0 / 0.18)" }}
           >
-            <textarea
-              autoFocus
-              value={draft.text}
-              onChange={(e) => setDraft({ ...draft, text: e.target.value })}
-              placeholder={`写给${displayName(contact)}…`}
-              className="w-full h-full bg-transparent outline-none resize-none text-[19px]"
-              style={handInk}
-            />
+            <div className="h-full flex flex-col">
+              <textarea
+                autoFocus
+                value={draft.text}
+                onChange={(e) => setDraft({ ...draft, text: e.target.value })}
+                placeholder={`写给${displayName(contact)}…`}
+                className="flex-1 min-h-0 w-full bg-transparent outline-none resize-none text-[19px]"
+                style={handInk}
+              />
+              {!!draft.photoIds?.length && (
+                <div className="shrink-0 flex gap-2 pt-2 overflow-x-auto no-bar">
+                  {draft.photoIds.map((id) => (
+                    <PhotoImg
+                      key={id}
+                      photo={photos[id]}
+                      className="w-16 h-16 rounded-sm object-cover shrink-0"
+                      style={{
+                        border: "3px solid oklch(0.99 0 0)",
+                        boxShadow: "0 2px 8px oklch(0 0 0 / 0.2)",
+                        transform: `rotate(${(id.charCodeAt(0) % 7) - 3}deg)`,
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -237,6 +263,13 @@ export function LettersApp({
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPicking(true)}
+              className="text-[11px] mr-2"
+              style={{ color: "var(--ink-faint)" }}
+            >
+              装张照片{draft.photoIds?.length ? ` · ${draft.photoIds.length}` : ""}
+            </button>
             <span className="text-[11px]" style={{ color: "var(--ink-faint)" }}>信封</span>
             {ENVELOPES.map((e) => (
               <button
@@ -252,6 +285,15 @@ export function LettersApp({
             ))}
           </div>
         </div>
+
+        {picking && (
+          <PhotoPicker
+            contactId={contact.id}
+            picked={draft.photoIds ?? []}
+            onDone={(ids) => setDraft({ ...draft, photoIds: ids.length ? ids : undefined })}
+            onClose={() => setPicking(false)}
+          />
+        )}
       </div>
     );
   }
@@ -291,6 +333,22 @@ export function LettersApp({
             <p className="text-[19px] whitespace-pre-wrap" style={handInk}>
               {reading.text}
             </p>
+            {!!reading.photoIds?.length && (
+              <div className="flex flex-wrap gap-3 pt-5">
+                {reading.photoIds.map((id) => (
+                  <PhotoImg
+                    key={id}
+                    photo={photos[id]}
+                    className="w-28 h-28 rounded-sm object-cover"
+                    style={{
+                      border: "5px solid oklch(0.99 0 0)",
+                      boxShadow: "0 3px 12px oklch(0 0 0 / 0.22)",
+                      transform: `rotate(${(id.charCodeAt(0) % 7) - 3}deg)`,
+                    }}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
