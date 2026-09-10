@@ -14,7 +14,7 @@ const DB_NAME = "tether";
 /// ⚠️ **加新表要把这个数字 +1。** onupgradeneeded 只在版本变大时才跑，
 /// 而它只创建缺的表、不动已有数据——所以升级对老用户是无损的。
 /// 忘了加版本号的症状是「新表不存在」，而不是报错。
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 export const STORES = [
   "contacts",
@@ -26,6 +26,7 @@ export const STORES = [
   "notes",
   "posts",
   "comments",
+  "tracks",
 ] as const;
 export type StoreName = (typeof STORES)[number];
 

@@ -16,6 +16,9 @@ export type Settings = {
   /// 手动指定的天气城市。留空 = 自动定位。
   /// 有这个字段是因为按 IP 定的是**网络出口**，家宽常常落在省会甚至邻省。
   weatherPlace: string;
+  /// 在线音源的地址。留空 = 只有本地文件，在线那部分整个隐藏。
+  /// **服务不在这个 App 里**——谁要在线音乐谁自己跑一个。
+  musicApiBase: string;
 
   /// ⚠️ 下面两个是旧版遗留，只用来在第一次启动时把老数据搬进联系人。
   /// 设置页不再编辑它们。见 contacts.ensureSeed。
@@ -32,6 +35,7 @@ export const DEFAULT_SETTINGS: Settings = {
   userEmoji: "🌱",
   userSignature: "",
   weatherPlace: "",
+  musicApiBase: "",
 };
 
 const KEY = "tether.settings.v1";

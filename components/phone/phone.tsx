@@ -13,6 +13,8 @@ import { PhotosApp } from "@/components/apps/photos-app";
 import { MemoryApp } from "@/components/apps/memory-app";
 import { NotesApp } from "@/components/apps/notes-app";
 import { MomentsApp } from "@/components/apps/moments-app";
+import { MusicApp } from "@/components/apps/music-app";
+import { PlayerProvider } from "./player";
 import { SettingsApp } from "@/components/apps/settings-app";
 import { PlaceholderApp } from "@/components/apps/placeholder-app";
 import { appById } from "@/lib/apps/registry";
@@ -171,6 +173,8 @@ export function Phone() {
   const app = open ? appById(open.id) : undefined;
 
   return (
+    // 播放器套在最外面：退出音乐 app 歌还在放，audio 元素不跟着卸载。
+    <PlayerProvider apiBase={settings.musicApiBase}>
     <div
       ref={device}
       className="device"
@@ -197,6 +201,8 @@ export function Phone() {
               settings={settings}
               onUnreadChange={() => void refreshBadges(contacts)}
             />
+          ) : app.id === "music" ? (
+            <MusicApp settings={settings} />
           ) : app.id === "moments" ? (
             <MomentsApp contacts={contacts} settings={settings} />
           ) : app.id === "notes" ? (
@@ -226,5 +232,6 @@ export function Phone() {
         />
       )}
     </div>
+    </PlayerProvider>
   );
 }

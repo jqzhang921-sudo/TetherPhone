@@ -105,6 +105,7 @@ export const APPS: AppDef[] = [
     id: "music",
     name: "音乐",
     tint: "oklch(0.70 0.14 350)",
+    ready: true,
     icon: <Icon><path d="M9 17V5l10-2v12" /><circle cx="6.5" cy="17.5" r="2.6" /><circle cx="16.5" cy="15.5" r="2.6" /></Icon>,
   },
   {

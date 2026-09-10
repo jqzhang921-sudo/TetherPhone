@@ -105,6 +105,24 @@ export function SettingsApp({
         />
       </Group>
 
+      <Group title="音乐">
+        <Field
+          label="音源地址"
+          value={settings.musicApiBase}
+          onChange={(v) => onChange({ musicApiBase: v })}
+          placeholder="http://127.0.0.1:3300"
+          hint="留空只能听本地文件。在线找歌要一个音源服务——它不在这个 App 里，你得自己跑一个（比如 api-enhanced），把地址填这儿。"
+        />
+        <p className="text-[11px] leading-relaxed" style={{ color: "var(--ink-faint)" }}>
+          <b style={{ color: "var(--ink-dim)" }}>这个地址会由本站服务端去请求。</b>
+          本机自己跑着用没问题，填 <code>127.0.0.1</code> 也行。
+          但**要是把站部署出去给别人开**，就该在部署平台上设
+          <code> MUSIC_API_BASE </code>
+          把地址钉死——否则等于让任何人指使你的服务器去访问任意地址，包括内网。
+          （部署环境下内网地址默认已经挡了。）
+        </p>
+      </Group>
+
       <Group title="壁纸">
         <div className="grid grid-cols-3 gap-3">
           {WALLPAPERS.map((w) => {
