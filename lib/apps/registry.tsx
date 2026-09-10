@@ -40,6 +40,9 @@ export const APPS: AppDef[] = [
     dock: true,
     ready: true,
     ownHeader: true,
+    // 满屏：聊天背景要铺到状态栏底下。不铺的话顶上留一条缝，
+    // 而且背景一翻深浅，那条缝就成了两个色调的分界，像两个 app 叠着。
+    bleed: true,
     icon: <Icon><path d="M20 12a8 8 0 1 1-3.2-6.4" /><path d="M21 4v5h-5" /><path d="M8.5 11.5h.01M12 11.5h.01M15.5 11.5h.01" /></Icon>,
   },
   {

@@ -25,6 +25,8 @@ import type { Settings } from "@/lib/os/settings";
 import { Avatar } from "@/components/phone/avatar";
 import { faceOf } from "@/lib/os/avatar";
 import { bubbleById } from "@/lib/os/bubbles";
+import { useChatSkin } from "@/lib/os/chat-bg";
+import { StatusBar } from "@/components/phone/status-bar";
 
 /// 发给上游的消息。比库里存的 Msg 多两样：assistant 可能带 tool_calls，
 /// tool 角色要带 tool_call_id。
@@ -111,6 +113,13 @@ export function ChatApp({
   onOpenProfile: (c: Contact) => void;
 }) {
   const bubble = bubbleById(settings.bubbleStyle);
+  /// 聊天页的宽高比，算背景下限要按 cover 裁过再取样。量一次就够。
+  /// ⚠️ 用 offsetWidth 不用 getBoundingClientRect——app 打开动画起手是
+  /// scale(0.16)，rect 返回的是变换后的尺寸。
+  const [aspect, setAspect] = useState(9 / 19.5);
+  const measure = useCallback((el: HTMLDivElement | null) => {
+    if (el?.offsetHeight) setAspect(el.offsetWidth / el.offsetHeight);
+  }, []);
   const [openId, setOpenId] = useState<string | null>(null);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [previews, setPreviews] = useState<Record<string, string>>({});
@@ -128,6 +137,9 @@ export function ChatApp({
   const player = usePlayer();
 
   const contact = contacts.find((c) => c.id === openId) ?? null;
+  /// 这段关系自己的聊天背景。没开会话时 openId 是 null，传空串——
+  /// hook 不能写在提前 return 后面，所以它总要被调用一次。
+  const skin = useChatSkin(openId ?? "", contact?.chatBgAt, aspect);
 
   const refreshPhotos = useCallback(async (cid: string) => {
     const rows = await loadPhotos(cid);
@@ -391,7 +403,17 @@ export function ChatApp({
   // ── 会话列表 ────────────────────────────────────────────────
   if (!contact) {
     return (
-      <div className="flex-1 min-h-0 flex flex-col">
+      <div
+        className="w-full h-full flex flex-col"
+        style={{
+          paddingBottom: "var(--home-h)",
+          // 满屏的 app 自己画纸面——AppWindow 对 bleed 是不画的
+          background: "color-mix(in oklab, var(--glass-tint) 88%, transparent)",
+          backdropFilter: "blur(28px) saturate(1.5)",
+          WebkitBackdropFilter: "blur(28px) saturate(1.5)",
+        }}
+      >
+        <StatusBar />
         <header className="px-5 pt-1 pb-3 shrink-0">
           <h1 className="text-[26px] font-semibold" style={{ color: "var(--ink)" }}>
             聊天
@@ -422,7 +444,39 @@ export function ChatApp({
 
   // ── 聊天室 ──────────────────────────────────────────────────
   return (
-    <div className="flex-1 min-h-0 flex flex-col">
+    <div
+      ref={measure}
+      className="w-full h-full flex flex-col"
+      // ⚠️ **整片跟着背景图翻深浅。** 浅色壁纸配一张深色聊天背景，
+      // 不翻的话就是深底深字；或者为了让深字读得了，把玻璃逼到厚成一块白板。
+      // globals.css 里那套 token 是按 [data-tone] 挂的、不绑在 .device 上，
+      // 所以挂在这儿就只影响聊天页。
+      data-tone={skin ? (skin.dark ? "dark" : "light") : undefined}
+      style={{
+        // 状态栏排在这一列里（见下面第一个子元素），所以顶上不用留白；
+        // home 条是浮着的，底下得让开，否则输入框被压住点不到。
+        paddingBottom: "var(--home-h)",
+        ...(skin
+          ? {
+              backgroundImage: `url(${skin.url})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+              color: "var(--ink)",
+              // 这张背景算出来的玻璃下限。半透明的气泡和输入框靠 max() 吃它——
+              // 设备那一层是按**壁纸**算的，管不到铺了背景图的聊天页。
+              ["--glass-floor" as string]: `${Math.round(skin.floor * 100)}%`,
+              ["--glass-floor-strong" as string]: `${Math.min(92, Math.round(skin.floor * 100) + 16)}%`,
+            }
+          : {
+              // 没设背景就还是原来那张纸
+              background: "color-mix(in oklab, var(--glass-tint) 88%, transparent)",
+              backdropFilter: "blur(28px) saturate(1.5)",
+              WebkitBackdropFilter: "blur(28px) saturate(1.5)",
+            }),
+      }}
+    >
+      {/* 自己画状态栏：这一层的 data-tone 跟着背景图翻，画在这儿它才跟着翻 */}
+      <StatusBar />
       <header className="shrink-0 flex items-center gap-2 px-3 pt-1 pb-2.5">
         <button onClick={() => setOpenId(null)} className="p-1.5 -ml-1 active:opacity-50" aria-label="返回">
           <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="var(--ink)"
@@ -475,9 +529,17 @@ export function ChatApp({
               )}
               {!!m.content && (
                 <div
-                  className="px-3.5 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap break-words rounded-[20px]"
+                  className="px-3.5 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap break-words"
                   // 样式在 lib/os/bubbles.ts。每套都自己立住底，不靠透出壁纸成立。
-                  style={m.role === "user" ? bubble.me(contact.bubble) : bubble.them}
+                  //
+                  // ⚠️ **说话那侧的下角收紧到 6px。** 四角全 20 的话，
+                  // 两三个字的消息宽高都只有四十来像素，20 就是它的半高——
+                  // 圆角互相接上，气泡变成一颗药丸；描边那套最明显，像个按钮。
+                  // 缺一个角既压住了这个形状，又顺带指出话是从哪边出来的。
+                  style={{
+                    borderRadius: m.role === "user" ? "20px 20px 6px 20px" : "20px 20px 20px 6px",
+                    ...(m.role === "user" ? bubble.me(contact.bubble) : bubble.them),
+                  }}
                 >
                   {m.content}
                 </div>
@@ -487,7 +549,8 @@ export function ChatApp({
         )}
 
         {busy && (
-          <div className="self-start px-3.5 py-3 rounded-[20px]" style={bubble.them}>
+          <div className="self-start px-3.5 py-3"
+            style={{ borderRadius: "20px 20px 20px 6px", ...bubble.them }}>
             <span className="flex gap-1">
               {[0, 1, 2].map((i) => (
                 <span key={i} className="w-1.5 h-1.5 rounded-full animate-pulse"

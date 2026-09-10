@@ -4,6 +4,7 @@ import { Sky } from "@/components/weather/sky";
 import { Glyph } from "@/components/weather/glyph";
 import { sceneOf, skyCss, skyIsDark, textOf } from "@/lib/weather/wmo";
 import type { Settings } from "@/lib/os/settings";
+import { StatusBar } from "@/components/phone/status-bar";
 
 type Report = {
   place: string;
@@ -104,6 +105,11 @@ export function WeatherApp({
       style={{ background: skyCss(scene, day), transition: "background 800ms ease" }}
     >
       {data && <Sky scene={scene} day={day} wind={data.current.wind} />}
+
+      {/* 浮在天空上面，跟着这一层的深浅走 */}
+      <div className="absolute top-0 left-0 right-0 z-10 pointer-events-none">
+        <StatusBar />
+      </div>
 
       <div className="absolute inset-0 overflow-y-auto no-bar px-5 pt-12 pb-14">
         {!data && !err && (

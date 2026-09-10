@@ -63,9 +63,12 @@ export function AppWindow({
       {/* 满屏时内容垫在最底下，状态栏和 home 条浮在它上面 */}
       {app.bleed && <div className="absolute inset-0">{children}</div>}
 
-      <div className={app.bleed ? "relative z-10" : "contents"}>
-        <StatusBar />
-      </div>
+      {/* ⚠️ **满屏的 app 自己画状态栏。**
+          它们会在自己那层重定义 data-tone（天气按天空、聊天按背景图），
+          而状态栏画在这儿就在那层外面——深色天空配浅色壁纸时，
+          时间和信号格会是深色压深色，几乎看不见。
+          画进去就自动跟着那一层的 --ink 走。 */}
+      {!app.bleed && <StatusBar />}
       {!app.ownHeader && (
         <header className="px-5 pt-1 pb-3 shrink-0">
           <h1 className="text-[26px] font-semibold" style={{ color: "var(--ink)" }}>

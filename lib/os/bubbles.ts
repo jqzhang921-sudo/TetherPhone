@@ -18,12 +18,26 @@ export type BubbleStyle = {
   them: React.CSSProperties;
 };
 
-/// 承载文字的白/暗面。和 .glass 不同：这里 88% 不是为了好看，是为了压住背景。
+/// 承载文字的白/暗面。和 .glass 不同：这里的百分比不是为了好看，是为了压住背景。
+///
+/// ⚠️ **半透明的气泡也要吃 `--glass-floor`。** 聊天页可以铺自己的背景图，
+/// 那时压在气泡底下的就不是壁纸了——设备那一层按壁纸算出来的下限管不到这儿。
+/// 聊天页会把按背景图算出的下限设在自己身上，靠这个 max() 顶上去。
 const solid = (pct = 88): React.CSSProperties => ({
-  background: `color-mix(in oklab, var(--glass-tint) ${pct}%, transparent)`,
+  background: `color-mix(in oklab, var(--glass-tint) max(${pct}%, var(--glass-floor, 0%)), transparent)`,
   color: "var(--ink)",
   border: "1px solid var(--glass-edge)",
 });
+
+/// 玻璃那套两侧一样，抽出来省得写两遍、也省得改一处漏一处
+const glassFace: React.CSSProperties = {
+  background:
+    "color-mix(in oklab, var(--glass-tint) max(var(--glass-alpha-strong), var(--glass-floor-strong, 0%)), transparent)",
+  color: "var(--ink)",
+  backdropFilter: "blur(var(--glass-blur)) saturate(1.9)",
+  WebkitBackdropFilter: "blur(var(--glass-blur)) saturate(1.9)",
+  border: "1px solid var(--glass-edge)",
+};
 
 export const BUBBLES: BubbleStyle[] = [
   {
@@ -48,35 +62,15 @@ export const BUBBLES: BubbleStyle[] = [
     id: "glass",
     name: "都是玻璃",
     hint: "两边一样，只靠左右分谁说的",
-    me: () => ({
-      background: "color-mix(in oklab, var(--glass-tint) var(--glass-alpha-strong), transparent)",
-      color: "var(--ink)",
-      backdropFilter: "blur(var(--glass-blur)) saturate(1.9)",
-      WebkitBackdropFilter: "blur(var(--glass-blur)) saturate(1.9)",
-      border: "1px solid var(--glass-edge)",
-    }),
-    them: {
-      background: "color-mix(in oklab, var(--glass-tint) var(--glass-alpha-strong), transparent)",
-      color: "var(--ink)",
-      backdropFilter: "blur(var(--glass-blur)) saturate(1.9)",
-      WebkitBackdropFilter: "blur(var(--glass-blur)) saturate(1.9)",
-      border: "1px solid var(--glass-edge)",
-    },
+    me: () => glassFace,
+    them: glassFace,
   },
   {
     id: "ink",
     name: "描边",
     hint: "只有一圈线，最轻",
-    me: (tint) => ({
-      background: "color-mix(in oklab, var(--glass-tint) 82%, transparent)",
-      color: "var(--ink)",
-      border: `1.5px solid ${tint}`,
-    }),
-    them: {
-      background: "color-mix(in oklab, var(--glass-tint) 82%, transparent)",
-      color: "var(--ink)",
-      border: "1.5px solid var(--ink-faint)",
-    },
+    me: (tint) => ({ ...solid(82), border: `1.5px solid ${tint}` }),
+    them: { ...solid(82), border: "1.5px solid var(--ink-faint)" },
   },
 ];
 

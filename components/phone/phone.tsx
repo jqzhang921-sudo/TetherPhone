@@ -33,6 +33,7 @@ import {
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from "@/lib/os/settings";
 import { loadLetters, unreadCount } from "@/lib/letters/store";
 import { ThemeApp } from "@/components/apps/theme-app";
+import { clearChatBg } from "@/lib/os/chat-bg";
 
 type Open = { id: string; origin: { x: number; y: number } };
 
@@ -112,6 +113,8 @@ export function Phone() {
   };
 
   const removeContact = async (id: string) => {
+    // 背景图存在 photos 表里、以联系人 id 命名，人没了它就是个孤儿
+    await clearChatBg(id);
     await deleteContact(id);
     setContacts(await loadContacts());
   };

@@ -33,6 +33,11 @@
   --sat: 0px;
   --sab: 0px;
 
+  /* 底部 home 条占掉的高度。它和状态栏一样浮在满屏 app 的上面，
+     所以聊天的输入框要从它底下让开，否则被压住点不到。
+     和 app-window.tsx 那一层对齐：pt 0.5rem + 5px 横杠 + pb 0.5rem。 */
+  --home-h: calc(1.3rem + var(--sab));
+
   /* 手写体。日记 / 信 / 便签的正文用它——那些东西是"写上去的"，
      不是"印上去的"。字体本体切成了 unicode-range 分片
      （见 tools/slice-font.py），只有真的渲染到手写体的页面才会触发下载，

@@ -25,6 +25,10 @@ export type Contact = {
   /// 头像该比来源活得久，把原图从相册删掉不该让头像变空白。
   /// 见 lib/os/avatar.ts。
   avatar?: Blob;
+  /// 换聊天背景的时间戳，没设过就没有。**图不在这儿**——它铺满一屏，
+  /// 挂在这张表上会让每次 getAll 都把整张图读出来，而联系人是启动就全加载的。
+  /// 图在 photos 表，见 lib/os/chat-bg.ts。
+  chatBgAt?: number;
   /// 虚拟号码。现在纯装饰，将来打电话用得上。
   phone: string;
   signature: string;

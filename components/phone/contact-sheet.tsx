@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { displayName, type Contact } from "@/lib/os/contacts";
 import { cropSquare, faceOf } from "@/lib/os/avatar";
+import { saveChatBg, clearChatBg } from "@/lib/os/chat-bg";
 import { shrink } from "@/lib/photos/store";
 import { PhotoPicker } from "@/components/photos/photo-picker";
 import { Avatar } from "./avatar";
@@ -50,7 +51,9 @@ export function ContactSheet({
   canDelete: boolean;
 }) {
   const [draft, setDraft] = useState(contact);
-  const [picking, setPicking] = useState(false);
+  /// 挑图面板现在两个地方用：头像和聊天背景。存一个"挑给谁"而不是两个布尔，
+  /// 免得两个都为 true 的状态存在。
+  const [picking, setPicking] = useState<"face" | "bg" | null>(null);
   const [entered, setEntered] = useState(false);
 
   useEffect(() => setDraft(contact), [contact]);
@@ -105,7 +108,7 @@ export function ContactSheet({
           <Row label="头像">
             <div className="flex gap-2 pb-2.5">
               <button
-                onClick={() => setPicking(true)}
+                onClick={() => setPicking("face")}
                 className="flex-1 rounded-xl py-2 text-[12px]"
                 style={{ background: "color-mix(in oklab, var(--glass-tint) 70%, transparent)", color: "var(--ink)" }}
               >
@@ -159,6 +162,53 @@ export function ContactSheet({
                 </button>
               ))}
             </div>
+          </Row>
+
+          <Row label="聊天背景">
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPicking("bg")}
+                className="flex-1 rounded-xl py-2 text-[12px]"
+                style={{ background: "color-mix(in oklab, var(--glass-tint) 70%, transparent)", color: "var(--ink)" }}
+              >
+                从相册选
+              </button>
+              <label
+                className="flex-1 rounded-xl py-2 text-[12px] text-center cursor-pointer"
+                style={{ background: "color-mix(in oklab, var(--glass-tint) 70%, transparent)", color: "var(--ink)" }}
+              >
+                自己传
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!f) return;
+                    // 铺满一屏，别压到 1280——那是聊天图的尺寸
+                    const { blob, w, h } = await shrink(f, 1600, 0.86);
+                    await saveChatBg(draft.id, blob, w, h);
+                    set({ chatBgAt: Date.now() });
+                  }}
+                />
+              </label>
+              {draft.chatBgAt && (
+                <button
+                  onClick={async () => {
+                    await clearChatBg(draft.id);
+                    set({ chatBgAt: undefined });
+                  }}
+                  className="rounded-xl px-3 text-[12px]"
+                  style={{ background: "color-mix(in oklab, var(--glass-tint) 70%, transparent)", color: "var(--ink-faint)" }}
+                >
+                  去掉
+                </button>
+              )}
+            </div>
+            <p className="text-[11px] leading-relaxed pt-2" style={{ color: "var(--ink-faint)" }}>
+              只铺在和 TA 的聊天里。深浅从图里算，字和气泡会自己让开。
+            </p>
           </Row>
 
           <Row label="底色">
@@ -262,8 +312,15 @@ export function ContactSheet({
           contactId={draft.id}
           picked={[]}
           onDone={() => {}}
-          onPick={async (ph) => set({ avatar: await cropSquare(ph.blob) })}
-          onClose={() => setPicking(false)}
+          onPick={async (ph) => {
+            if (picking === "face") {
+              set({ avatar: await cropSquare(ph.blob) });
+            } else {
+              await saveChatBg(draft.id, ph.blob, ph.w, ph.h);
+              set({ chatBgAt: Date.now() });
+            }
+          }}
+          onClose={() => setPicking(null)}
         />
       )}
     </div>
