@@ -121,6 +121,14 @@ body {
 @keyframes rise    { from { opacity: 0; transform: translateY(12px) } to { opacity: 1; transform: none } }
 
 .anim-fade { animation: fade-in 240ms var(--ease-ios) both; }
+
+/* 编辑桌面时图标轻微晃。
+   幅度刻意小：真机上大幅度晃看久了晕，而且会让人以为是卡了。 */
+@keyframes wiggle {
+  0%, 100% { transform: rotate(-1.1deg) }
+  50%      { transform: rotate(1.1deg) }
+}
+.anim-wiggle { animation: wiggle 260ms ease-in-out infinite; }
 .anim-rise { animation: rise 320ms var(--ease-ios) both; }
 
 /* 滚动条：手机上不该看见 */

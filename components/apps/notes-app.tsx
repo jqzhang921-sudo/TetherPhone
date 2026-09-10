@@ -9,16 +9,19 @@ import {
   type Note,
 } from "@/lib/notes/store";
 import { hashOf } from "@/lib/id";
-import type { Contact } from "@/lib/os/contacts";
+import { displayName, type Contact } from "@/lib/os/contacts";
+import type { Settings } from "@/lib/os/settings";
 
 function Sticky({
   note,
-  emoji,
+  who,
   onToggle,
   onDrop,
 }: {
   note: Note;
-  emoji: string;
+  /// 谁写的：头像和名字。**一块公用的板，看得出是谁贴的才有意义**
+  /// ——只写「你写的」三个字，扫一眼分不出哪些是它留的。
+  who: { emoji: string; name: string; tint: string };
   onToggle: () => void;
   onDrop: () => void;
 }) {
@@ -59,8 +62,16 @@ function Sticky({
         </span>
       </button>
       <div className="flex items-center justify-between pt-1.5">
-        <span className="text-[10px]" style={{ color: "oklch(0.45 0.02 250)" }}>
-          {note.author === "me" ? "你写的" : `${emoji} 写的`}
+        <span className="flex items-center gap-1">
+          <span
+            className="w-4 h-4 rounded-full grid place-items-center text-[9px] shrink-0"
+            style={{ background: who.tint }}
+          >
+            {who.emoji}
+          </span>
+          <span className="text-[10px]" style={{ color: "oklch(0.45 0.02 250)" }}>
+            {who.name}
+          </span>
         </span>
         {note.done && (
           <button onClick={onDrop} className="text-[10px]" style={{ color: "oklch(0.45 0.02 250)" }}>
@@ -72,7 +83,17 @@ function Sticky({
   );
 }
 
-export function NotesApp({ contacts }: { contacts: Contact[] }) {
+export function NotesApp({
+  contacts,
+  settings,
+}: {
+  contacts: Contact[];
+  settings: Settings;
+}) {
+  const me = {
+    emoji: settings.userEmoji,
+    name: settings.userName.trim() || "你",
+  };
   const [who, setWho] = useState(contacts[0]?.id ?? "");
   const [rows, setRows] = useState<Note[]>([]);
   const [text, setText] = useState("");
@@ -147,7 +168,11 @@ export function NotesApp({ contacts }: { contacts: Contact[] }) {
               <Sticky
                 key={n.id}
                 note={n}
-                emoji={contact.emoji}
+                who={
+                  n.author === "me"
+                    ? { emoji: me.emoji, name: me.name, tint: "oklch(0.72 0.02 250)" }
+                    : { emoji: contact.emoji, name: displayName(contact), tint: contact.tint }
+                }
                 onToggle={async () => {
                   await saveNote({ ...n, done: true, doneAt: Date.now() });
                   await refresh(contact.id);
@@ -171,7 +196,11 @@ export function NotesApp({ contacts }: { contacts: Contact[] }) {
                 <Sticky
                   key={n.id}
                   note={n}
-                  emoji={contact.emoji}
+                  who={
+                  n.author === "me"
+                    ? { emoji: me.emoji, name: me.name, tint: "oklch(0.72 0.02 250)" }
+                    : { emoji: contact.emoji, name: displayName(contact), tint: contact.tint }
+                }
                   onToggle={async () => {
                     // 撤销：勾回去，重新算它的一周
                     await saveNote({ ...n, done: false, doneAt: null });

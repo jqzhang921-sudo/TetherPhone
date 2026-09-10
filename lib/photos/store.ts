@@ -68,6 +68,10 @@ export function toDataUrl(blob: Blob): Promise<string> {
   });
 }
 
+/// 壁纸这类「属于这台手机、不属于某段关系」的图，用这个作用域。
+/// 和音乐曲库同一个道理，也不会混进任何联系人的相册。
+export const PHONE_SCOPE = "_phone";
+
 export function blankPhoto(contactId: string, from: Photo["from"]): Omit<Photo, "blob" | "w" | "h"> {
   return { id: newId(), contactId, from, saved: false, at: Date.now() };
 }

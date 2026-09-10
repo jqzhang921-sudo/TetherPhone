@@ -19,6 +19,9 @@ import { SettingsApp } from "@/components/apps/settings-app";
 import { PlaceholderApp } from "@/components/apps/placeholder-app";
 import { appById } from "@/lib/apps/registry";
 import { wallpaperById } from "@/lib/os/wallpapers";
+import { getAll } from "@/lib/db/idb";
+import { toneFromImage } from "@/lib/music/tone";
+import type { Photo } from "@/lib/photos/store";
 import {
   blankContact,
   deleteContact,
@@ -139,7 +142,46 @@ export function Phone() {
     setContacts((prev) => prev.map((c) => (c.id === id ? next : c)));
   }, []);
 
+  /// 一起听过几首。和计时同一个理由：写库前先算好，别在 setState 的更新函数里做。
+  const onSong = useCallback(() => {
+    const id = togetherRef.current;
+    if (!id) return;
+    const hit = contactsRef.current.find((c) => c.id === id);
+    if (!hit) return;
+    const next = { ...hit, songs: (hit.songs ?? 0) + 1 };
+    void saveContact(next);
+    setContacts((prev) => prev.map((c) => (c.id === id ? next : c)));
+  }, []);
+
   const wallpaper = wallpaperById(settings.wallpaperId);
+
+  /// 自己传的壁纸。
+  /// ⚠️ **深浅要从图里算，不能让人自己选。** 她选错了整页字就没法看，
+  /// 而且换一张就得重选一次。用和封面取色同一套（WCAG 相对亮度 0.179 那道门槛，
+  /// 不是 OKLab 的 L——两者不是一回事）。
+  const [custom, setCustom] = useState<{ url: string; dark: boolean } | null>(null);
+  useEffect(() => {
+    const id = settings.wallpaperPhotoId;
+    if (!id) {
+      setCustom(null);
+      return;
+    }
+    let url: string | null = null;
+    let alive = true;
+    void (async () => {
+      const rows = await getAll<Photo>("photos");
+      const hit = rows.find((r) => r.id === id);
+      if (!hit?.blob || !alive) return;
+      url = URL.createObjectURL(hit.blob);
+      const t = await toneFromImage(url);
+      if (alive) setCustom({ url, dark: t?.dark ?? true });
+      else URL.revokeObjectURL(url);
+    })();
+    return () => {
+      alive = false;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [settings.wallpaperPhotoId]);
 
   const openApp = (id: string, center: { x: number; y: number }) => {
     // AppIcon 给的是视口坐标；窗口的 transform-origin 要的是设备框内坐标。
@@ -198,17 +240,31 @@ export function Phone() {
 
   return (
     // 播放器套在最外面：退出音乐 app 歌还在放，audio 元素不跟着卸载。
-    <PlayerProvider apiBase={settings.musicApiBase} onListened={onListened}>
+    <PlayerProvider apiBase={settings.musicApiBase} onListened={onListened} onSong={onSong}>
     <div
       ref={device}
       className="device"
-      data-tone={wallpaper.tone}
-      style={{ background: wallpaper.css }}
+      data-tone={custom ? (custom.dark ? "dark" : "light") : wallpaper.tone}
+      style={
+        custom
+          ? {
+              backgroundImage: `url(${custom.url})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }
+          : { background: wallpaper.css }
+      }
     >
       {locked ? (
         <LockScreen onUnlock={() => setLocked(false)} />
       ) : (
-        <HomeScreen onOpen={openApp} badges={badges} />
+        <HomeScreen
+          onOpen={openApp}
+          badges={badges}
+          settings={settings}
+          contacts={contacts}
+          onChange={patchSettings}
+        />
       )}
 
       {open && app && (
@@ -234,7 +290,7 @@ export function Phone() {
           ) : app.id === "moments" ? (
             <MomentsApp contacts={contacts} settings={settings} />
           ) : app.id === "notes" ? (
-            <NotesApp contacts={contacts} />
+            <NotesApp contacts={contacts} settings={settings} />
           ) : app.id === "memory" ? (
             <MemoryApp contacts={contacts} />
           ) : app.id === "photos" ? (

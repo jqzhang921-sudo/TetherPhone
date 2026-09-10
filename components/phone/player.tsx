@@ -26,6 +26,9 @@ type Ctl = {
   loggedIn: boolean;
   play: (t: Track, queue?: Track[]) => void;
   toggle: () => void;
+  /// 停下来并且**从桌面上消失**。暂停不等于关掉——
+  /// 一条永远杵在那儿的播放条，没有出口就是个 bug。
+  stop: () => void;
   next: () => void;
   prev: () => void;
   seek: (s: number) => void;
@@ -41,12 +44,15 @@ export const usePlayer = () => {
 export function PlayerProvider({
   apiBase,
   onListened,
+  onSong,
   children,
 }: {
   apiBase: string;
   /// 每放够一段就报一次。**计时放在这儿而不是音乐 app 里**——
   /// 退出 app 歌还在放，计时也该还在走。
   onListened?: (seconds: number) => void;
+  /// 开始放一首新的。用来数「一起听过几首」。
+  onSong?: () => void;
   children: React.ReactNode;
 }) {
   const audio = useRef<HTMLAudioElement>(null);
@@ -99,9 +105,10 @@ export function PlayerProvider({
     (t: Track, q?: Track[]) => {
       setTrack(t);
       if (q) setQueue(q);
+      onSong?.();
       void load(t);
     },
-    [load],
+    [load, onSong],
   );
 
   const step = useCallback(
@@ -112,10 +119,31 @@ export function PlayerProvider({
       // 转圈：最后一首的下一首回到第一首
       const n = queue[(i + d + queue.length) % queue.length];
       setTrack(n);
+      onSong?.();
       void load(n);
     },
-    [track, queue, load],
+    [track, queue, load, onSong],
   );
+
+  const stop = useCallback(() => {
+    const el = audio.current;
+    if (el) {
+      el.pause();
+      el.removeAttribute("src");
+      el.load();
+    }
+    if (objUrl.current) {
+      URL.revokeObjectURL(objUrl.current);
+      objUrl.current = null;
+    }
+    setTrack(null);
+    setQueue([]);
+    setPlaying(false);
+    setAt(0);
+    setLen(0);
+    setErr(null);
+    setTrial(false);
+  }, []);
 
   const toggle = useCallback(() => {
     const el = audio.current;
@@ -157,13 +185,14 @@ export function PlayerProvider({
       loggedIn,
       play,
       toggle,
+      stop,
       next: () => step(1),
       prev: () => step(-1),
       seek: (s: number) => {
         if (audio.current) audio.current.currentTime = s;
       },
     }),
-    [track, playing, at, len, err, trial, loggedIn, play, step],
+    [track, playing, at, len, err, trial, loggedIn, play, step, stop],
   );
 
   return (

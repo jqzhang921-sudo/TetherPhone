@@ -23,6 +23,14 @@ export type Settings = {
   togetherWith: string;
   /// 放歌时的背景。"cover" = 从封面取色（默认），或者某张壁纸的 id。
   musicBg: string;
+  /// 自己传的壁纸（photos 表里的 id，作用域是这台手机）。
+  /// 有值时盖过 wallpaperId。
+  wallpaperPhotoId: string;
+  /// 桌面上放哪些卡片，逗号分隔的 id。
+  widgets: string;
+  /// 图标顺序，逗号分隔的 app id。**registry 里新增的会自动补在后面**——
+  /// 加了新 app 不该因为老用户的顺序里没有它就消失。
+  appOrder: string;
 
   /// ⚠️ 下面两个是旧版遗留，只用来在第一次启动时把老数据搬进联系人。
   /// 设置页不再编辑它们。见 contacts.ensureSeed。
@@ -42,6 +50,9 @@ export const DEFAULT_SETTINGS: Settings = {
   musicApiBase: "",
   togetherWith: "",
   musicBg: "cover",
+  wallpaperPhotoId: "",
+  widgets: "clock",
+  appOrder: "",
 };
 
 const KEY = "tether.settings.v1";
