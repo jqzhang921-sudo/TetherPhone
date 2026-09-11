@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { mmss, usePlayer } from "@/components/phone/player";
 import { analyze, describe } from "@/lib/music/analyze";
 import { skyOf, toneFromImage, type Tone } from "@/lib/music/tone";
-import { coverUrl, likedIds, setLiked } from "@/lib/music/store";
+import { coverUrl } from "@/lib/music/store";
 import { lineAt } from "@/lib/music/lrc";
 import { WALLPAPERS, wallpaperById } from "@/lib/os/wallpapers";
 import { completeOnce, identity } from "@/lib/ai";
@@ -77,9 +77,8 @@ export function MusicPlayer({
   /// 待播清单那一层，和「一起听」那一层
   const [queueOpen, setQueueOpen] = useState(false);
   const [inviting, setInviting] = useState(false);
-  /// 「我喜欢的音乐」里已经有的那些。**开页时问一次就够**，
-  /// 每换一首都去问一遍等于替她刷接口。
-  const [likes, setLikes] = useState<Set<string>>(new Set());
+  /// 收藏状态读播放器那一份——它也会按那颗心（like_song 工具），
+  /// 两边各存各的就会对不上。
   const [likeErr, setLikeErr] = useState<string | null>(null);
 
   const base = settings.musicApiBase.trim();
@@ -208,37 +207,13 @@ export function MusicPlayer({
 
   if (!t) return null;
 
-  useEffect(() => {
-    if (!base) return;
-    let alive = true;
-    void likedIds(base).then((s) => alive && setLikes(s));
-    return () => {
-      alive = false;
-    };
-  }, [base]);
-
-  const liked = !!t?.songId && likes.has(t.songId);
+  const liked = !!t?.songId && p.liked(t.songId);
   const toggleLike = async () => {
     if (!t?.songId || !base) return;
-    const want = !liked;
-    // ⚠️ **先改样子再发请求，但失败要改回来。** 这颗心是「已经收进
-    // 我喜欢的音乐了」的承诺；发失败了还红着，就是骗她。
-    setLikes((s) => {
-      const n = new Set(s);
-      if (want) n.add(t.songId!);
-      else n.delete(t.songId!);
-      return n;
-    });
     setLikeErr(null);
     try {
-      await setLiked(base, t.songId, want);
+      await p.setLike(t.songId, !liked);
     } catch (e) {
-      setLikes((s) => {
-        const n = new Set(s);
-        if (want) n.delete(t.songId!);
-        else n.add(t.songId!);
-        return n;
-      });
       setLikeErr(e instanceof Error ? e.message : String(e));
     }
   };

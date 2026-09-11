@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { lyric as fetchLyric, playUrl, type Track } from "@/lib/music/store";
+import { likedIds, lyric as fetchLyric, playUrl, setLiked, type Track } from "@/lib/music/store";
 import { lyricLine, parseLrc, plainLines, type Line } from "@/lib/music/lrc";
 
 /// 播放器住在**壳里**，不在音乐 app 里。
@@ -25,6 +25,14 @@ type Ctl = {
   trial: boolean;
   /// 音源那边有没有登录态。决定试听提示该说哪句话。
   loggedIn: boolean;
+  /// 「我喜欢的音乐」里有哪些。
+  ///
+  /// ⚠️ **和歌词同一个道理：它住在播放器里。** 现在有两只手会按那颗心
+  /// ——她自己按，和它用工具按。各存各的话，它收了一首，
+  /// 她眼前那颗心还是空的，看着像没收上。
+  liked: (songId: string) => boolean;
+  /// 收藏 / 取消收藏。**这是在改她真的网易云账号**，失败会抛。
+  setLike: (songId: string, on: boolean) => Promise<void>;
   /// 这首的歌词，已经拆好时间轴。
   ///
   /// ⚠️ **歌词住在播放器里，不在播放页里。** 原来是播放页自己去拿一份、
@@ -143,6 +151,47 @@ export function PlayerProvider({
       void load(n);
     },
     [track, queue, load, onSong],
+  );
+
+  /// 「我喜欢的音乐」。开页问一次；之后靠本地增删跟着走，
+  /// 不必每首歌都重问一遍整张表。
+  const [likes, setLikes] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!apiBase.trim()) return;
+    let alive = true;
+    void likedIds(apiBase.trim()).then((s) => alive && setLikes(s));
+    return () => {
+      alive = false;
+    };
+  }, [apiBase]);
+
+  const liked = useCallback((songId: string) => likes.has(songId), [likes]);
+
+  const setLike = useCallback(
+    async (songId: string, on: boolean) => {
+      const base = apiBase.trim();
+      if (!base) throw new Error("没配音源");
+      // ⚠️ 先改样子再发请求，**但失败要改回来**。那颗心是「已经收进去了」
+      // 的承诺；发失败了还红着，比点了没反应更糟。
+      setLikes((s) => {
+        const n = new Set(s);
+        if (on) n.add(songId);
+        else n.delete(songId);
+        return n;
+      });
+      try {
+        await setLiked(base, songId, on);
+      } catch (e) {
+        setLikes((s) => {
+          const n = new Set(s);
+          if (on) n.delete(songId);
+          else n.add(songId);
+          return n;
+        });
+        throw e;
+      }
+    },
+    [apiBase],
   );
 
   /// 换歌就去拿一次歌词。
@@ -273,6 +322,8 @@ export function PlayerProvider({
   const value = useMemo<Ctl>(
     () => ({
       track,
+      liked,
+      setLike,
       lines,
       plain,
       nowLyric,
@@ -295,7 +346,7 @@ export function PlayerProvider({
         if (audio.current) audio.current.currentTime = s;
       },
     }),
-    [track, lines, plain, nowLyric, queue, enqueue, dropAt, moveTo, playing, at, len, err, trial, loggedIn, play, step, stop],
+    [track, liked, setLike, lines, plain, nowLyric, queue, enqueue, dropAt, moveTo, playing, at, len, err, trial, loggedIn, play, step, stop],
   );
 
   return (

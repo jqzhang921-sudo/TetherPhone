@@ -557,6 +557,21 @@ export function ChatApp({
                     : `排进清单了：《${pick.title}》- ${pick.artist}。等这首放完就是它。`;
                 }
               : undefined,
+            likeSong: settings.musicApiBase.trim()
+              ? async () => {
+                  const t = player.track;
+                  if (!t?.songId) return "现在没在放在线的歌，收不了。";
+                  if (player.liked(t.songId)) return `《${t.title}》本来就在「我喜欢的音乐」里了。`;
+                  try {
+                    await player.setLike(t.songId, true);
+                    return `收进「我喜欢的音乐」了：《${t.title}》- ${t.artist}。`;
+                  } catch (e) {
+                    // ⚠️ 失败要如实说。它以为收上了、回头跟她提起，
+                    // 而她那边根本没有——那比没收更难解释。
+                    return `没收上：${e instanceof Error ? e.message : String(e)}`;
+                  }
+                }
+              : undefined,
             skipSong: (back: boolean) => {
               if (!player.track) return "现在没在放歌，没得切。";
               // ⚠️ 清单只有一首时 step 会原地打转（它自己转一圈回到自己），

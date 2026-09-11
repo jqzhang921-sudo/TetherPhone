@@ -39,6 +39,9 @@ export type ToolCtx = {
   queueSong?: (keyword: string) => Promise<string>;
   /// 切歌。没有下一首就如实说。
   skipSong?: (back: boolean) => string;
+  /// 把**正在放的这首**收进她的「我喜欢的音乐」。
+  /// ⚠️ 只能加不能减，见 TOOLS 里的说明。
+  likeSong?: () => Promise<string>;
 };
 
 export const TOOLS = [
@@ -185,6 +188,18 @@ export const TOOLS = [
   {
     type: "function",
     function: {
+      name: "like_song",
+      description:
+        "把**正在放的这首**收进她的「我喜欢的音乐」。" +
+        "⚠️ 这是她真的网易云账号里的那个歌单，手机上、别的设备上都会多出这首，" +
+        "而且会影响网易云给她的推荐。**只能加，不能取消**——" +
+        "取消要她自己来，你删不了她攒下的东西。",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "skip_song",
       description:
         "跳到待播清单里的下一首（或上一首）。" +
@@ -298,6 +313,13 @@ export const toolRules = [
   "",
   "⚠️ **skip_song 只在她说了要换的时候用。** 她没说就跳，等于把遥控器从她手里拿走了。",
   "「这首有点吵」不等于「换掉」——先问一句，或者干脆只回一句话。",
+  "",
+  "⚠️ **like_song 收的是她真的网易云账号。** 那个歌单会同步到她手机上，",
+  "还会改变网易云给她的推荐——**它是她的品味，不是你的收藏夹**。",
+  "只在**她表达过喜欢**的时候收（她说「这首好听」「循环了」「存一下」），",
+  "或者你们刚聊到的事正好被这首唱中了、她也认了。",
+  "**别替她攒歌单**：你觉得好听不是收的理由。拿不准就说一句「要不要收着」，",
+  "让她自己按那颗心——那颗心就在播放页左下角，她一眼看得到。",
   "",
   "你也能自己写日记（write_diary）和写信（write_letter）。",
   "**日记是写给自己的**：想清楚一件事、记下今天，不是写一份给她看的汇报。",
@@ -538,6 +560,11 @@ export async function runTool(
     if (!kw) return "得说是哪首。";
     if (!ctx.queueSong) return "她还没配音源，我排不了歌。";
     return ctx.queueSong(kw);
+  }
+
+  if (name === "like_song") {
+    if (!ctx.likeSong) return "她还没配音源，我收不了。";
+    return ctx.likeSong();
   }
 
   if (name === "skip_song") {
