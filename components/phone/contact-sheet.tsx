@@ -72,7 +72,13 @@ export function ContactSheet({
   };
 
   return (
-    <div className="absolute inset-0 z-10 flex flex-col justify-end">
+    // ⚠️ **资料卡必须压在主页（z-30）上面。** 它是从主页右上角那支笔点进来的，
+    // 层号比主页小的话，卡片**照样建出来了、只是被主页整个盖住**——
+    // 症状是「点了笔没反应」，而 DOM 里一切正常，控制台也不报错。
+    // 机身里这几层的顺序：app 窗口 < 主页 30 < 资料卡 40。
+    // （app 自己内部那些 z-10/20/30 不参与比较：窗口带 transform，
+    // 自成一个层叠上下文。）
+    <div className="absolute inset-0 z-40 flex flex-col justify-end">
       <button
         aria-label="关闭"
         onClick={close}
