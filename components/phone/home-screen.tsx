@@ -104,6 +104,8 @@ export function HomeScreen({
   };
   const press = useRef<number | null>(null);
   const flipAt = useRef(0);
+  /// 上一次松手时是不是一次干净的点击（没拖、没翻页）。下面补发 click 要用。
+  const tapped = useRef(false);
 
   /// 一个格子多大。**列宽定完行高跟着走**，这样 2×2 就是正方形。
   /// ⚠️ 量宽度要用 offsetWidth：app 打开动画起手是 scale(0.16)，
@@ -164,6 +166,7 @@ export function HomeScreen({
   const endGesture = (why: string) => {
     const st = g.current;
     trace(`${why} mode=${st?.mode ?? "-"} drag=${drag ? drag.to.page + "," + drag.to.col + "," + drag.to.row : "-"}`);
+    tapped.current = why === "up" && st?.mode === "wait";
     clearG();
     if (st?.mode === "pan") {
       const pg = pager.current;
@@ -403,6 +406,30 @@ export function HomeScreen({
                       }}
                       onPointerUp={() => endGesture("up")}
                       onPointerCancel={() => endGesture("cancel")}
+                      onClick={(e) => {
+                        // ⚠️ **Chrome 把 click 派发给「捕获了指针的那个元素」，
+                        // 不是手指底下的那个。** 上面 pointerdown 里为了拖得动
+                        // 立刻 setPointerCapture，于是桌面上每一次点击都落在这层
+                        // 包装上，里面按钮的 onClick 一次都不会响：点图标不进 app、
+                        // 编辑态点「挑照片」也没反应。
+                        //
+                        // Safari 不这么干，所以在她的 iPhone 上一直是好的——
+                        // **这条只有在 Chrome 里才现形，用真机测永远测不出来。**
+                        // 而且在 pointerup 里 releasePointerCapture 也来不及：
+                        // 实测那时 click 的目标已经定死了（`captured, released,
+                        // target=WRAPPER`）。
+                        //
+                        // 所以只能把偷走的这一下还回去：找出手指底下真正的按钮，
+                        // 补发一次 click。补发的那次 target 是按钮，走不到这儿，
+                        // 不会转圈。
+                        if (e.target !== e.currentTarget) return;
+                        // 刚拖完、刚翻完页也会来一次 click，那不是「点」
+                        if (!tapped.current) return;
+                        const real = document
+                          .elementFromPoint(e.clientX, e.clientY)
+                          ?.closest("button");
+                        if (real && e.currentTarget.contains(real)) real.click();
+                      }}
                     >
                       {isWidget ? (
                         <span className="w-full h-full relative">
