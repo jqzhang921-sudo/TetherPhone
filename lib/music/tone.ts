@@ -138,9 +138,11 @@ export function skyOf(t: Tone | null): string {
 /// 可它有一块接近纯白的高光——一小块高光推不高标准差，却足以让一整行字消失。
 /// 所以要单独看**亮端和暗端**。
 ///
-/// ⚠️ **峰值取「第三亮」而不是 p95。** 32×32 的每个采样点已经是原图一整块的平均值，
-/// 那个尺度约等于一张卡片压住的面积；p95（1024 个里第 51 亮）完全够不着，
+/// ⚠️ **峰值取「第三亮」而不是 p95。** 每个采样点已经是原图一整块的平均值，
+/// 那个尺度约等于一张卡片压住的面积；p95（32×32 时是 1024 个里第 51 亮）完全够不着，
 /// 实测算出来的 alpha 和"不管亮端"一模一样。
+/// 网格有多大由调用方按模糊半径定，所以「第三亮」在粗网格上自然就松——
+/// 这正是想要的：玻璃底下本来就是被糊平的那一版。
 ///
 /// 注意这是**保守**估计：backdrop 的模糊会把高光和周围拉平，实际比这更容易读。
 function grayOf(lum: number) {
@@ -198,13 +200,26 @@ export function minGlassAlpha(pixels: Uint8ClampedArray, dark: boolean): number 
 /// 屏幕是竖的、图常常是横的，cover 会把左右两边切掉。整张图取样的话，
 /// 一块被切掉、永远不出现在屏幕上的高光照样会把玻璃顶厚——玻璃为一块
 /// 谁也看不见的白斑变闷，还找不出原因。
-export function readImage(url: string, aspect = 9 / 19.5): Promise<{ tone: Tone; minAlpha: number } | null> {
+///
+/// ⚠️ **取样的精细度要跟着模糊走。**
+/// 玻璃底下不是原图，是被 `backdrop-filter` 糊过的版本。模糊开到七八十像素时，
+/// 原图的亮暗差早被抹平了，还按 32×32 去算峰谷，算出来的下限会**高得离谱**
+/// ——那会把「晕染」那种低浓度玻璃直接顶死。
+/// 网格边长按「一格约等于一个模糊半径」来定，低于 3 就没意义了。
+export function readImage(
+  url: string,
+  aspect = 9 / 19.5,
+  /// 模糊半径（px）和机身宽度，用来决定取样多细。不给就按老样子 32×32。
+  blur = 0,
+  deviceW = 390,
+): Promise<{ tone: Tone; minAlpha: number } | null> {
+  const n = blur > 0 ? Math.max(3, Math.min(32, Math.round(deviceW / Math.max(8, blur * 1.4)))) : 32;
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
       try {
         const c = document.createElement("canvas");
-        c.width = c.height = 32;
+        c.width = c.height = n;
         const ctx = c.getContext("2d", { willReadFrequently: true });
         if (!ctx) return resolve(null);
 
@@ -218,9 +233,9 @@ export function readImage(url: string, aspect = 9 / 19.5): Promise<{ tone: Tone;
           sh = ih;
           sw = ih * aspect;
         }
-        ctx.drawImage(img, (iw - sw) / 2, (ih - sh) / 2, sw, sh, 0, 0, 32, 32);
+        ctx.drawImage(img, (iw - sw) / 2, (ih - sh) / 2, sw, sh, 0, 0, n, n);
 
-        const px = ctx.getImageData(0, 0, 32, 32).data;
+        const px = ctx.getImageData(0, 0, n, n).data;
         const tone = toneOf(px);
         resolve({ tone, minAlpha: minGlassAlpha(px, tone.dark) });
       } catch {

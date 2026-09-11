@@ -118,8 +118,8 @@ body {
    已实测：max() 在 color-mix() 里四种写法全都解析正常。 */
 .glass {
   background: color-mix(in oklab, var(--glass-tint) max(var(--glass-alpha), var(--glass-floor, 0%)), transparent);
-  backdrop-filter: blur(var(--glass-blur)) saturate(1.9);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.9);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat, 1.9));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat, 1.9));
   border: 1px solid var(--glass-edge);
   box-shadow: var(--glass-sheen), var(--glass-shadow);
 }
@@ -127,8 +127,8 @@ body {
 /* 要压住文字的那种，透明度再高一档 */
 .glass-strong {
   background: color-mix(in oklab, var(--glass-tint) max(var(--glass-alpha-strong), var(--glass-floor-strong, 0%)), transparent);
-  backdrop-filter: blur(var(--glass-blur)) saturate(1.9);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.9);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat, 1.9));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat, 1.9));
   border: 1px solid var(--glass-edge);
   box-shadow: var(--glass-sheen), var(--glass-shadow);
 }
@@ -138,8 +138,8 @@ body {
   background: color-mix(in oklab, var(--glass-tint) max(var(--glass-icon-alpha, 44%), var(--glass-floor, 0%)), transparent);
   /* 图标那层的模糊比卡片小一档：十几个同屏，糊太狠会连成一片。
      跟着 --glass-blur 走但打个折，用户调质感时它一起动。 */
-  backdrop-filter: blur(calc(var(--glass-blur) * 0.7)) saturate(2);
-  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.7)) saturate(2);
+  backdrop-filter: blur(calc(var(--glass-blur) * 0.7)) saturate(calc(var(--glass-sat, 1.9) * 1.05));
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.7)) saturate(calc(var(--glass-sat, 1.9) * 1.05));
   border: 1px solid var(--glass-edge);
   box-shadow: var(--glass-sheen), var(--glass-shadow);
 }

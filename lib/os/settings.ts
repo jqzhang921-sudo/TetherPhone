@@ -22,6 +22,10 @@ export type Settings = {
   /// 玻璃边上那条折射带多宽（px），0 = 平的。
   /// 默认给一点点：她要的是「稍微有点折射，不用太平」。
   glassEdge: number;
+  /// 玻璃的饱和度 ×100，0 = 用默认（190）。
+  /// **「晕染」全靠它**：模糊把纹理化掉之后，剩下的就是颜色，
+  /// 不提饱和就只剩一片灰。
+  glassSat: number;
   /// 气泡样式 id，空 = 跟随主题
   bubbleStyle: string;
   userEmoji: string;
@@ -81,6 +85,7 @@ export const DEFAULT_SETTINGS: Settings = {
   iconAlpha: 0,
   glassBlur: 0,
   glassEdge: 16,
+  glassSat: 0,
   bubbleStyle: "",
   userEmoji: "🌱",
   userAvatarAt: 0,

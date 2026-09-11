@@ -208,11 +208,18 @@ export function Phone() {
   /// ⚠️ **深浅要从图里算，不能让人自己选。** 她选错了整页字就没法看，
   /// 而且换一张就得重选一次。用和封面取色同一套（WCAG 相对亮度 0.179 那道门槛，
   /// 不是 OKLab 的 L——两者不是一回事）。
+  ///
+  /// ⚠️ **取 URL 和采样要分成两步。** 下限跟模糊有关（糊得越狠，玻璃底下越平，
+  /// 下限就该越松），所以拉模糊滑杆时得重算一遍；但那张图一个像素都没变。
+  /// 两件事塞在一个 effect 里，就会每拉一次滑杆重读一次 IndexedDB、
+  /// 重建一次 objectURL——壁纸当场闪一下，而且闪的是无关的那一步。
+  const [src, setSrc] = useState<string | null>(null);
   const [custom, setCustom] = useState<{ url: string; dark: boolean; alpha: number } | null>(null);
+
   useEffect(() => {
     const id = settings.wallpaperPhotoId;
     if (!id) {
-      setCustom(null);
+      setSrc(null);
       return;
     }
     let url: string | null = null;
@@ -222,23 +229,40 @@ export function Phone() {
       const hit = rows.find((r) => r.id === id);
       if (!hit?.blob || !alive) return;
       url = URL.createObjectURL(hit.blob);
-      // 用机身的真实宽高比，别写死——改了 --phone-w/h 这里要跟着走
-      const box = device.current;
-      const r = await readImage(
-        url,
-        box && box.offsetHeight ? box.offsetWidth / box.offsetHeight : undefined,
-      );
-      if (alive) {
-        // 存的是这张图**要求的下限**，不是最终值。最终值在 CSS 里
-        // 由 max(默认, 下限) 决定——平坦的壁纸下限低于默认，就什么都不改。
-        setCustom({ url, dark: r?.tone.dark ?? true, alpha: r?.minAlpha ?? 0 });
-      } else URL.revokeObjectURL(url);
+      if (alive) setSrc(url);
+      else URL.revokeObjectURL(url);
     })();
     return () => {
       alive = false;
       if (url) URL.revokeObjectURL(url);
     };
   }, [settings.wallpaperPhotoId]);
+
+  useEffect(() => {
+    if (!src) {
+      setCustom(null);
+      return;
+    }
+    let alive = true;
+    void (async () => {
+      // 用机身的真实宽高比，别写死——改了 --phone-w/h 这里要跟着走
+      const box = device.current;
+      const r = await readImage(
+        src,
+        box && box.offsetHeight ? box.offsetWidth / box.offsetHeight : undefined,
+        // 模糊越大，玻璃底下越平，下限就该越松——取样精细度跟着它走
+        settings.glassBlur || 20,
+        box?.offsetWidth || 390,
+      );
+      // 存的是这张图**要求的下限**，不是最终值。最终值在 CSS 里
+      // 由 max(默认, 下限) 决定——平坦的壁纸下限低于默认，就什么都不改。
+      // 整条一起写：算完之前画面上仍是上一张的图配上一张的下限，是自洽的。
+      if (alive) setCustom({ url: src, dark: r?.tone.dark ?? true, alpha: r?.minAlpha ?? 0 });
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [src, settings.glassBlur]);
 
   /// 内置壁纸的下限。**照片和渐变走两条路**：照片能采样，渐变采不到，
   /// 只能从它自己的色标推。算一次存着——换壁纸才需要重算。
@@ -383,6 +407,7 @@ export function Phone() {
           : null),
         ...(settings.iconAlpha ? { ["--glass-icon-alpha" as string]: `${settings.iconAlpha}%` } : null),
         ...(settings.glassBlur ? { ["--glass-blur" as string]: `${settings.glassBlur}px` } : null),
+        ...(settings.glassSat ? { ["--glass-sat" as string]: `${settings.glassSat / 100}` } : null),
       }}
     >
       {locked ? (

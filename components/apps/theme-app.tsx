@@ -2,6 +2,7 @@
 import { useCallback, useState } from "react";
 import { WALLPAPERS } from "@/lib/os/wallpapers";
 import { BUBBLES } from "@/lib/os/bubbles";
+import { MATERIALS, materialOf } from "@/lib/os/materials";
 import { PHONE_SCOPE, blankPhoto, savePhoto, shrink } from "@/lib/photos/store";
 import type { Settings } from "@/lib/os/settings";
 
@@ -38,20 +39,28 @@ function Slider({
   min,
   max,
   unit,
+  unset,
   onCommit,
 }: {
-  /// 0 = 没设过，用默认
   value: number;
   /// 没设过时滑杆停在哪
   fallback: number;
   min: number;
   max: number;
   unit: string;
+  /// 哪个数表示「没设过，用 CSS 的默认」。
+  ///
+  /// ⚠️ **不是每根滑杆都有这么一个数。** 边缘厚度的 0 是「我就要平的」，
+  /// 不是「没设过」——把它当默认，滑杆会停在 16 却给你写着「默认」，
+  /// 而实际生效的是 0，看到的和存着的和生效的三样全对不上。
+  /// 所以有这个格子的滑杆，量程要避开它（模糊从 2 起跳，2px 和 0px 长得一样）。
+  unset?: number;
   onCommit: (v: number) => void;
 }) {
   const [drag, setDrag] = useState<number | null>(null);
   const picked = drag ?? value;
-  const shown = picked ? Math.max(picked, min) : null;
+  const bare = unset !== undefined && picked === unset;
+  const shown = bare ? null : Math.max(picked, min);
   const commit = () => {
     if (drag !== null) onCommit(Math.max(drag, min));
     setDrag(null);
@@ -75,11 +84,11 @@ function Slider({
           {shown === null ? "默认" : `${shown}${unit}`}
         </span>
       </div>
-      {shown !== null && (
+      {unset !== undefined && !bare && (
         <button
           onClick={() => {
             setDrag(null);
-            onCommit(0);
+            onCommit(unset);
           }}
           className="self-start text-[12px]"
           style={{ color: "var(--ink-faint)" }}
@@ -150,6 +159,32 @@ export function ThemeApp({
           <span className="glass-icon rounded-[14px] w-11 h-11 shrink-0" />
         </div>
 
+        {/* 一档 = 下面几根滑杆的一组值。挑完照样能接着拉——
+            滑杆是唯一的真相，这儿只是替你把三个数一起调对。 */}
+        <div className="flex gap-2">
+          {MATERIALS.map((m) => {
+            const on = materialOf(settings) === m.id;
+            return (
+              <button
+                key={m.id}
+                onClick={() => onChange(m.set)}
+                className="flex-1 rounded-2xl px-3 py-2.5 text-left"
+                style={{
+                  background: "color-mix(in oklab, var(--glass-tint) 40%, transparent)",
+                  outline: on ? "2px solid var(--ink)" : "1px solid var(--glass-edge)",
+                }}
+              >
+                <div className="text-[13px]" style={{ color: "var(--ink)" }}>
+                  {m.name}
+                </div>
+                <div className="text-[11px] leading-tight pt-0.5" style={{ color: "var(--ink-faint)" }}>
+                  {m.hint}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
         <div>
           <div className="text-[12px] pb-1" style={{ color: "var(--ink-faint)" }}>
             卡片和组件
@@ -160,6 +195,7 @@ export function ThemeApp({
             min={lowest}
             max={92}
             unit="%"
+            unset={0}
             onCommit={(v) => onChange({ glassAlpha: v })}
           />
         </div>
@@ -174,6 +210,7 @@ export function ThemeApp({
             min={lowest}
             max={92}
             unit="%"
+            unset={0}
             onCommit={(v) => onChange({ iconAlpha: v })}
           />
         </div>
@@ -185,14 +222,34 @@ export function ThemeApp({
           <Slider
             value={settings.glassBlur}
             fallback={base.blur}
-            min={0}
-            max={40}
+            min={2}
+            max={80}
+            unset={0}
             unit="px"
             onCommit={(v) => onChange({ glassBlur: v })}
           />
           <p className="text-[11px] leading-relaxed pt-1.5" style={{ color: "var(--ink-faint)" }}>
-            只在壁纸有花纹的地方看得出来。压在一片平坦的颜色上，糊和不糊长得一样——
-            那时候撑起玻璃感的是边和顶上那道光，不是模糊。
+            二十上下你还认得出底下是什么；越往右纹路越化得开，到七八十就只剩一团一团的颜色了。
+            压在一片平坦的颜色上糊和不糊长得一样——那时候撑起玻璃感的是边和顶上那道光，不是模糊。
+          </p>
+        </div>
+
+        <div>
+          <div className="text-[12px] pb-1" style={{ color: "var(--ink-faint)" }}>
+            颜色的浓度
+          </div>
+          <Slider
+            value={settings.glassSat}
+            fallback={190}
+            min={100}
+            max={320}
+            unit="%"
+            unset={0}
+            onCommit={(v) => onChange({ glassSat: v })}
+          />
+          <p className="text-[11px] leading-relaxed pt-1.5" style={{ color: "var(--ink-faint)" }}>
+            模糊是在做平均，而平均会把对着来的两种颜色互相抵消掉。糊得越狠越该往右拉，
+            不然剩下的是一片灰，不是玻璃。
           </p>
         </div>
 
