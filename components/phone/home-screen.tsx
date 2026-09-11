@@ -84,6 +84,8 @@ export function HomeScreen({
     scroll: number;
     mode: "wait" | "pan" | "drag";
     timer: number | null;
+    /// 这一下手指总共走了多远。判「是不是点了一下」要看它，不能看 mode
+    moved: number;
   } | null>(null);
 
   const clearG = () => {
@@ -104,7 +106,12 @@ export function HomeScreen({
   };
   const press = useRef<number | null>(null);
   const flipAt = useRef(0);
-  /// 上一次松手时是不是一次干净的点击（没拖、没翻页）。下面补发 click 要用。
+  /// 上一次松手是不是一次干净的点击。下面补发 click 要用。
+  ///
+  /// ⚠️ **判据是「手指没动」，不是「mode 还停在 wait」。** 编辑态下按下去
+  /// 就立刻算拿起来（定时器是 0ms），所以只要这一下超过一帧，mode 就已经是
+  /// drag 了——拿 mode 当判据的话，编辑态里点「挑照片」「✕」永远补发不出去，
+  /// 而那正是编辑态最需要点的两个东西。
   const tapped = useRef(false);
 
   /// 一个格子多大。**列宽定完行高跟着走**，这样 2×2 就是正方形。
@@ -166,7 +173,7 @@ export function HomeScreen({
   const endGesture = (why: string) => {
     const st = g.current;
     trace(`${why} mode=${st?.mode ?? "-"} drag=${drag ? drag.to.page + "," + drag.to.col + "," + drag.to.row : "-"}`);
-    tapped.current = why === "up" && st?.mode === "wait";
+    tapped.current = why === "up" && !!st && st.moved < 8;
     clearG();
     if (st?.mode === "pan") {
       const pg = pager.current;
@@ -353,6 +360,7 @@ export function HomeScreen({
                           y: e.clientY,
                           scroll: pg ? pg.scrollLeft : 0,
                           mode: "wait",
+                          moved: 0,
                           timer: window.setTimeout(() => {
                             if (!g.current || g.current.mode !== "wait") return;
                             g.current.mode = "drag";
@@ -367,6 +375,7 @@ export function HomeScreen({
                         const st = g.current;
                         if (!st) return;
                         const dx = e.clientX - st.x;
+                        st.moved = Math.max(st.moved, Math.hypot(dx, e.clientY - st.y));
 
                         // 还没到点就动了 = 在翻页
                         if (st.mode === "wait") {
@@ -423,7 +432,7 @@ export function HomeScreen({
                         // 补发一次 click。补发的那次 target 是按钮，走不到这儿，
                         // 不会转圈。
                         if (e.target !== e.currentTarget) return;
-                        // 刚拖完、刚翻完页也会来一次 click，那不是「点」
+                        // 真拖过、真翻过页也会来一次 click，那不是「点」
                         if (!tapped.current) return;
                         const real = document
                           .elementFromPoint(e.clientX, e.clientY)
