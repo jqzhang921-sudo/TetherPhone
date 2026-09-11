@@ -60,20 +60,16 @@ export function HomeScreen({
   /// 正在拖的那个，和它现在落在哪
   const [drag, setDrag] = useState<{ id: string; to: { page: number; col: number; row: number } } | null>(null);
 
-  /// 编辑态下按在一个东西上，接下来可能是两件事：**按住不动 = 拖它**，
-  /// **马上滑走 = 翻页**。所以先不急着决定，等一下看手往哪走。
+  /// ⚠️ **编辑态下按在一个东西上 = 立刻拿起来，不等。**
   ///
-  /// ⚠️ 翻页必须自己实现，不能交给浏览器。要让浏览器滚，元素就得允许横向
-  /// 平移（touch-action: pan-x），可那样一来「按住之后再拖」也会被它当成滚动
-  /// 拿走。两件事只能二选一，所以这里把两件事都自己管。
-  const g = useRef<{
-    id: string;
-    x: number;
-    y: number;
-    scroll: number;
-    mode: "idle" | "pan" | "drag";
-    timer: number | null;
-  } | null>(null);
+  /// 上一版想同时支持「按住不动才拖、马上滑走算翻页」，用 260ms 定性。
+  /// 实测这条不成立：**正常人拖东西不会先停一下**——按下 90ms 就开始动，
+  /// 于是每次都被判成翻页，组件永远拿不起来，症状正是「拖不进去」。
+  ///
+  /// 现在的分工是：**压在东西上 = 拖它，压在空处 = 翻页**（空处走原生滚动）。
+  /// 拖的时候手滑到屏幕边上那一条，页跟着翻——这样「摁住它滑到别的屏」
+  /// 是一个连续动作，不用先松手。
+  const g = useRef<{ id: string; scroll: number } | null>(null);
   const press = useRef<number | null>(null);
   const flipAt = useRef(0);
 
@@ -133,19 +129,8 @@ export function HomeScreen({
     };
   };
 
-  /// 手离开。翻页的话吸到最近一页；拖的话落子。
   const endGesture = () => {
-    const st = g.current;
-    if (st?.timer) window.clearTimeout(st.timer);
     g.current = null;
-    if (st?.mode === "pan") {
-      const el = pager.current;
-      if (el) {
-        const n = Math.round(el.scrollLeft / Math.max(1, el.clientWidth));
-        el.scrollTo({ left: n * el.clientWidth, behavior: "smooth" });
-      }
-      return;
-    }
     commit();
   };
 
@@ -318,45 +303,19 @@ export function HomeScreen({
                           /* 抓不住就算了，靠冒泡的 move 事件照样能跟 */
                         }
                         const el = pager.current;
-                        g.current = {
-                          id: i.id,
-                          x: e.clientX,
-                          y: e.clientY,
-                          scroll: el ? el.scrollLeft : 0,
-                          mode: "idle",
-                          timer: window.setTimeout(() => {
-                            if (!g.current || g.current.mode !== "idle") return;
-                            g.current.mode = "drag";
-                            setDrag({ id: i.id, to: { page: i.page, col: i.col, row: i.row } });
-                          }, 260),
-                        };
+                        g.current = { id: i.id, scroll: el ? el.scrollLeft : 0 };
+                        setDrag({ id: i.id, to: { page: i.page, col: i.col, row: i.row } });
                       }}
                       onPointerMove={(e) => {
-                        const st = g.current;
-                        if (!edit || !st) return;
-                        const dx = e.clientX - st.x;
-
-                        // 还没定性：手先动了就是要翻页，按住不动才是要拖
-                        if (st.mode === "idle") {
-                          if (Math.abs(dx) < 8 && Math.abs(e.clientY - st.y) < 8) return;
-                          if (st.timer) window.clearTimeout(st.timer);
-                          st.timer = null;
-                          st.mode = "pan";
-                        }
-
-                        if (st.mode === "pan") {
-                          const el = pager.current;
-                          if (el) el.scrollLeft = st.scroll - dx;
-                          return;
-                        }
-
-                        if (!drag) return;
+                        if (!edit || !g.current || !drag) return;
                         // 判边界用**可视区**，不是用某一页的网格——页滚过去之后
                         // 那一页的 rect 已经不在屏幕上了
                         const box = pager.current?.getBoundingClientRect();
                         // 拖到屏幕边上就翻页。**要有冷却**，否则贴着边一帧翻一页。
-                        if (box && Date.now() - flipAt.current > 700) {
-                          const near = 26;
+                        if (box && Date.now() - flipAt.current > 650) {
+                          // ⚠️ 这一条要够宽。26px 的时候手指得几乎戳到屏幕边，
+                          // 实际操作里根本够不着——那才是「拖不到别的屏」的另一半原因。
+                          const near = 72;
                           if (e.clientX < box.left + near && drag.to.page > 0) {
                             flipAt.current = Date.now();
                             setDrag({ ...drag, to: { ...drag.to, page: drag.to.page - 1 } });
