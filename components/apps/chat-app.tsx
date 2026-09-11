@@ -91,8 +91,8 @@ function systemPrompt(
   // ⚠️ 时间**不进消息正文**。给每条前面贴 `[14:32]` 的话，模型会学着也这么写，
   // 时间戳就漏进它说的话里了。它真正需要的只有两件事：现在几点、
   // 距上次说话隔了多久。
-  // ⚠️ 和时间一样放最后：**这两样每条消息都在变**。
-  // 放前面会把名字、人设、记忆、规矩的前缀缓存整段打散。
+  //
+  // 「在放什么」跟在时间后面，理由同上：它也是每条都在变的那一类。
   bits.push(nowLine(lastAt));
   if (playing) bits.push(playing);
 
@@ -400,6 +400,16 @@ export function ChatApp({
           ? [
               `你们正一起听《${player.track.title}》${player.track.artist ? " - " + player.track.artist : ""}。`,
               player.nowLyric(),
+              // ⚠️ **得让它知道清单里后面还有什么，skip_song 才有意义。**
+              // 不给的话「下一首是什么」它只能瞎猜，而猜错的代价是
+              // 它信誓旦旦地报了一首根本不在清单里的歌。
+              (() => {
+                const i = player.queue.findIndex((q) => q.id === player.track!.id);
+                const rest = i < 0 ? [] : player.queue.slice(i + 1, i + 4);
+                if (!rest.length) return "这是清单里的最后一首。";
+                const more = player.queue.length - i - 1 > 3 ? " 等" : "";
+                return `清单里后面还排着：${rest.map((q) => `《${q.title}》`).join("、")}${more}。`;
+              })(),
               "她要是说到「这句」「这一段」，指的多半就是上面那句。",
             ]
               .filter(Boolean)
@@ -519,6 +529,43 @@ export function ChatApp({
                     : `放了《${pick.title}》- ${pick.artist}。`;
                 }
               : undefined,
+            // 排进待播，不打断她在听的那首
+            queueSong: settings.musicApiBase.trim()
+              ? async (kw: string) => {
+                  const hits = await searchSongs(settings.musicApiBase.trim(), kw);
+                  const pick = hits.find((h) => !h.vip) ?? hits[0];
+                  if (!pick) return `没搜到「${kw}」。`;
+                  const t = {
+                    id: `net-${pick.songId}`,
+                    contactId: PHONE,
+                    kind: "online" as const,
+                    title: pick.title,
+                    artist: pick.artist,
+                    songId: pick.songId,
+                    cover: pick.cover,
+                    at: Date.now(),
+                  };
+                  // ⚠️ **排队的歌不落库。** 曲库是她挑过的东西；
+                  // 它排一首就往里塞一首的话，曲库会慢慢变成它的收藏夹。
+                  player.enqueue(t);
+                  // ⚠️ 清单空着的时候「排进去」不会有任何动静——
+                  // 得说清楚是排上了还是开始放了，不然它以为自己放了歌。
+                  const started = !player.track;
+                  if (started) player.play(t);
+                  return started
+                    ? `清单本来是空的，直接放了《${pick.title}》- ${pick.artist}。`
+                    : `排进清单了：《${pick.title}》- ${pick.artist}。等这首放完就是它。`;
+                }
+              : undefined,
+            skipSong: (back: boolean) => {
+              if (!player.track) return "现在没在放歌，没得切。";
+              // ⚠️ 清单只有一首时 step 会原地打转（它自己转一圈回到自己），
+              // 看着像「切了但没换」。如实说，别让它以为切成功了。
+              if (player.queue.length < 2) return "清单里就这一首，没有下一首可切。";
+              if (back) player.prev();
+              else player.next();
+              return back ? "回到上一首了。" : "切到下一首了。";
+            },
             refresh: async () => {
               setDiary(await loadDiary(contact.id));
               setMemory(await loadMemory(contact.id));

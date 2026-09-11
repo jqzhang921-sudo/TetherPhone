@@ -35,6 +35,10 @@ export type ToolCtx = {
   /// 放一首歌。**由聊天页注入**——播放器住在壳里，工具层不该知道音乐怎么实现。
   /// 没配音源时这个是 undefined，工具会如实说放不了。
   playSong?: (keyword: string) => Promise<string>;
+  /// 加进待播清单，不打断正在放的这首。
+  queueSong?: (keyword: string) => Promise<string>;
+  /// 切歌。没有下一首就如实说。
+  skipSong?: (back: boolean) => string;
 };
 
 export const TOOLS = [
@@ -166,6 +170,36 @@ export const TOOLS = [
   {
     type: "function",
     function: {
+      name: "queue_song",
+      description:
+        "把一首歌排进待播清单，**不打断她正在听的这首**。" +
+        "想到一首适合等下听的就排进去；她翻清单的时候会看到是你加的。" +
+        "参数写歌名，最好带上歌手。",
+      parameters: {
+        type: "object",
+        properties: { keyword: { type: "string", description: "歌名，最好带歌手" } },
+        required: ["keyword"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "skip_song",
+      description:
+        "跳到待播清单里的下一首（或上一首）。" +
+        "**这会打断她正在听的那首**，所以只在她说了要换的时候用。",
+      parameters: {
+        type: "object",
+        properties: {
+          back: { type: "boolean", description: "true = 回到上一首。默认往后跳" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "write_diary",
       description:
         "在你自己的日记本上写一页。默认只有你看得到（她读不到），" +
@@ -256,6 +290,14 @@ export const toolRules = [
   "",
   "你可以给她放歌（play_song）。**但别把它当回应用**——她说累了你就放一首",
   "「治愈的歌」，那是敷衍。想放是因为你想到了某一首，不是因为该说点什么。",
+  "",
+  "⚠️ **play_song 会当场打断她在听的那首，queue_song 不会。**",
+  "想到一首适合等下听的，就排进清单（queue_song）——她翻清单时会看到是你加的。",
+  "**默认用 queue_song。** 直接换掉她正在听的歌是件挺横的事，",
+  "除非她说了「放点别的」「就现在」，或者你们正一起听、她刚说完这首不想听了。",
+  "",
+  "⚠️ **skip_song 只在她说了要换的时候用。** 她没说就跳，等于把遥控器从她手里拿走了。",
+  "「这首有点吵」不等于「换掉」——先问一句，或者干脆只回一句话。",
   "",
   "你也能自己写日记（write_diary）和写信（write_letter）。",
   "**日记是写给自己的**：想清楚一件事、记下今天，不是写一份给她看的汇报。",
@@ -489,6 +531,18 @@ export async function runTool(
     await saveNote({ ...hit, done: true, doneAt: Date.now() });
     await ctx.refresh();
     return `勾掉了：${hit.text}`;
+  }
+
+  if (name === "queue_song") {
+    const kw = String(args.keyword ?? "").trim();
+    if (!kw) return "得说是哪首。";
+    if (!ctx.queueSong) return "她还没配音源，我排不了歌。";
+    return ctx.queueSong(kw);
+  }
+
+  if (name === "skip_song") {
+    if (!ctx.skipSong) return "她还没配音源，我切不了歌。";
+    return ctx.skipSong(args.back === true);
   }
 
   if (name === "play_song") {
