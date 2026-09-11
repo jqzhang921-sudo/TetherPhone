@@ -59,6 +59,21 @@ export function HomeScreen({
   const [page, setPage] = useState(0);
   /// 正在拖的那个，和它现在落在哪
   const [drag, setDrag] = useState<{ id: string; to: { page: number; col: number; row: number } } | null>(null);
+
+  /// 编辑态下按在一个东西上，接下来可能是两件事：**按住不动 = 拖它**，
+  /// **马上滑走 = 翻页**。所以先不急着决定，等一下看手往哪走。
+  ///
+  /// ⚠️ 翻页必须自己实现，不能交给浏览器。要让浏览器滚，元素就得允许横向
+  /// 平移（touch-action: pan-x），可那样一来「按住之后再拖」也会被它当成滚动
+  /// 拿走。两件事只能二选一，所以这里把两件事都自己管。
+  const g = useRef<{
+    id: string;
+    x: number;
+    y: number;
+    scroll: number;
+    mode: "idle" | "pan" | "drag";
+    timer: number | null;
+  } | null>(null);
   const press = useRef<number | null>(null);
   const flipAt = useRef(0);
 
@@ -109,6 +124,22 @@ export function HomeScreen({
     const col = Math.floor((x - r.left) / (cell + GAP));
     const row = Math.floor((y - r.top) / (cell + GAP));
     return { col: Math.max(0, Math.min(COLS - 1, col)), row: Math.max(0, Math.min(ROWS - 1, row)) };
+  };
+
+  /// 手离开。翻页的话吸到最近一页；拖的话落子。
+  const endGesture = () => {
+    const st = g.current;
+    if (st?.timer) window.clearTimeout(st.timer);
+    g.current = null;
+    if (st?.mode === "pan") {
+      const el = pager.current;
+      if (el) {
+        const n = Math.round(el.scrollLeft / Math.max(1, el.clientWidth));
+        el.scrollTo({ left: n * el.clientWidth, behavior: "smooth" });
+      }
+      return;
+    }
+    commit();
   };
 
   const commit = () => {
@@ -184,7 +215,8 @@ export function HomeScreen({
       <div
         ref={pager}
         className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden no-bar flex"
-        style={{ scrollSnapType: edit ? "none" : "x mandatory", touchAction: edit ? "none" : "pan-x" }}
+        // 编辑态也保留翻页：空白处靠原生滚动，压在东西上靠下面那套手势
+        style={{ scrollSnapType: "x mandatory", touchAction: "pan-x" }}
         onScroll={(e) => {
           // ⚠️ 滚动事件一帧来一次。**页号没变就别写 state**——
           // 不然滑一次屏就是几十次整屏重渲染（每次还带着六层折射）。
@@ -253,16 +285,46 @@ export function HomeScreen({
                         if (!edit) return;
                         // ⚠️ setPointerCapture 会抛（指针已抬起、或不是活跃指针时
                         // 扔 NotFoundError）。不接住的话整个 handler 在这儿断掉，
-                        // setDrag 根本轮不到执行，症状是「按住拖不动，也不报错」。
+                        // 症状是「按住拖不动，也不报错」。
                         try {
                           e.currentTarget.setPointerCapture(e.pointerId);
                         } catch {
                           /* 抓不住就算了，靠冒泡的 move 事件照样能跟 */
                         }
-                        setDrag({ id: i.id, to: { page: i.page, col: i.col, row: i.row } });
+                        const el = pager.current;
+                        g.current = {
+                          id: i.id,
+                          x: e.clientX,
+                          y: e.clientY,
+                          scroll: el ? el.scrollLeft : 0,
+                          mode: "idle",
+                          timer: window.setTimeout(() => {
+                            if (!g.current || g.current.mode !== "idle") return;
+                            g.current.mode = "drag";
+                            setDrag({ id: i.id, to: { page: i.page, col: i.col, row: i.row } });
+                          }, 260),
+                        };
                       }}
                       onPointerMove={(e) => {
-                        if (!edit || !drag) return;
+                        const st = g.current;
+                        if (!edit || !st) return;
+                        const dx = e.clientX - st.x;
+
+                        // 还没定性：手先动了就是要翻页，按住不动才是要拖
+                        if (st.mode === "idle") {
+                          if (Math.abs(dx) < 8 && Math.abs(e.clientY - st.y) < 8) return;
+                          if (st.timer) window.clearTimeout(st.timer);
+                          st.timer = null;
+                          st.mode = "pan";
+                        }
+
+                        if (st.mode === "pan") {
+                          const el = pager.current;
+                          if (el) el.scrollLeft = st.scroll - dx;
+                          return;
+                        }
+
+                        if (!drag) return;
                         // 判边界用**可视区**，不是用某一页的网格——页滚过去之后
                         // 那一页的 rect 已经不在屏幕上了
                         const box = pager.current?.getBoundingClientRect();
@@ -283,8 +345,8 @@ export function HomeScreen({
                         const c = cellAt(e.clientX, e.clientY, drag.to.page);
                         if (c) setDrag({ ...drag, to: { ...drag.to, ...c } });
                       }}
-                      onPointerUp={commit}
-                      onPointerCancel={commit}
+                      onPointerUp={endGesture}
+                      onPointerCancel={endGesture}
                     >
                       {isWidget ? (
                         <span className="w-full h-full relative">
@@ -294,15 +356,24 @@ export function HomeScreen({
                             contacts={contacts}
                             onOpen={onOpen}
                           />
-                          {/* 编辑态下盖一层：点它是「挑内容」，不是进 app。
-                              没得挑的组件不盖，免得点了没反应。 */}
-                          {edit && widgetById(i.id.slice(2))?.options && (
+                          {/* ⚠️ **编辑态下一定要盖一层。** 不盖的话点卡片会进 app——
+                              整理桌面的时候每碰一下就跳进一个应用，没法整理。
+                              有东西可挑的（相册）顺便当入口，没有的就是块透明挡板。
+                              指针事件照样往上冒，所以不影响拖动。 */}
+                          {edit && (
                             <button
-                              onClick={() => setConfig(i.id.slice(2) as WidgetId)}
+                              onClick={() => {
+                                const w = widgetById(i.id.slice(2));
+                                if (w?.options) setConfig(i.id.slice(2) as WidgetId);
+                              }}
                               className="absolute inset-0 rounded-[26px] grid place-items-center text-[12px]"
-                              style={{ background: "oklch(0.15 0 0 / 0.35)", color: "oklch(0.99 0 0)" }}
+                              style={
+                                widgetById(i.id.slice(2))?.options
+                                  ? { background: "oklch(0.15 0 0 / 0.35)", color: "oklch(0.99 0 0)" }
+                                  : undefined
+                              }
                             >
-                              挑照片
+                              {widgetById(i.id.slice(2))?.options ? "挑照片" : ""}
                             </button>
                           )}
                         </span>

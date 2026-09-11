@@ -79,6 +79,12 @@ export function Edge({ radius = "inherit" }: { radius?: string | number }) {
   return (
     <>
       <div ref={box} style={{ position: "absolute", inset: 0, pointerEvents: "none" }} />
+      {/* ⚠️ **这一层必须自己带一层玻璃底色。**
+          `.glass` 的底色画在容器自己身上，任何子元素都在它**上面**——
+          直接画壁纸副本的结果是一条没蒙玻璃的亮边贴在卡上，
+          和里面的小块凑成三层同心圆角，很脏。
+          所以这里是「副本 + 同样的底色」一起蒙在环里，
+          环内环外看起来就是同一块玻璃，只是环里的内容被挤过。 */}
       <div
         aria-hidden
         style={{
@@ -86,23 +92,36 @@ export function Edge({ radius = "inherit" }: { radius?: string | number }) {
           inset: 0,
           borderRadius: radius,
           pointerEvents: "none",
-          // 和机身那张壁纸一模一样地铺，再反向偏移到自己的位置上，
-          // 这样副本和底下真的壁纸是严丝合缝的
-          ...(skin.url
-            ? { backgroundImage: `url(${skin.url})` }
-            : { background: skin.css }),
-          backgroundSize: `${geo.w}px ${geo.h}px`,
-          backgroundPosition: `${-geo.x}px ${-geo.y}px`,
-          backgroundRepeat: "no-repeat",
-          // 缩小：把更外面的内容挤进边上那条带
-          transform: "scale(0.86)",
-          transformOrigin: "center",
+          overflow: "hidden",
           maskImage: ring,
           WebkitMaskImage: ring,
-          // 半像素的糊，压掉缩放留下的锯齿
-          filter: "blur(0.6px)",
         }}
-      />
+      >
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            // 和机身那张壁纸一模一样地铺，再反向偏移到自己位置上
+            ...(skin.url ? { backgroundImage: `url(${skin.url})` } : { background: skin.css }),
+            backgroundSize: `${geo.w}px ${geo.h}px`,
+            backgroundPosition: `${-geo.x}px ${-geo.y}px`,
+            backgroundRepeat: "no-repeat",
+            // 缩小：把更外面的内容挤进边上那条带
+            transform: "scale(0.86)",
+            transformOrigin: "center",
+            // 糊一点，和玻璃底下那层的观感对上；顺带压掉缩放的锯齿
+            filter: "blur(3px)",
+          }}
+        />
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            background:
+              "color-mix(in oklab, var(--glass-tint) max(var(--glass-alpha), var(--glass-floor, 0%)), transparent)",
+          }}
+        />
+      </div>
     </>
   );
 }
