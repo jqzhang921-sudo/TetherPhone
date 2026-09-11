@@ -70,6 +70,13 @@ export function HomeScreen({
   /// 拖的时候手滑到屏幕边上那一条，页跟着翻——这样「摁住它滑到别的屏」
   /// 是一个连续动作，不用先松手。
   const g = useRef<{ id: string; scroll: number } | null>(null);
+
+  /// 还没进编辑态时，按在某个东西上的那一次长按。手一动就作废（那是在翻页）。
+  const grab = useRef<{ x: number; y: number; timer: number } | null>(null);
+  const dropGrab = () => {
+    if (grab.current) window.clearTimeout(grab.current.timer);
+    grab.current = null;
+  };
   const press = useRef<number | null>(null);
   const flipAt = useRef(0);
 
@@ -293,7 +300,37 @@ export function HomeScreen({
                         alignItems: i.h === 1 ? "center" : "stretch",
                       }}
                       onPointerDown={(e) => {
-                        if (!edit) return;
+                        // ⚠️ **长按进编辑态之后，手不松就要能直接拖走。**
+                        // 原来这里是 `if (!edit) return`——长按时 edit 还是 false，
+                        // 这一下就被丢掉了；600ms 后图标开始抖，可那次按压已经作废，
+                        // 必须松手再按第二次才拖得动。而真人的动作是一气呵成的：
+                        // 长按 → 开始抖 → 手不松直接拖。症状就是「怎么都拖不起来」。
+                        //
+                        // 这也是我三轮都没查到的原因：**我每次测试都是先进编辑态、
+                        // 松手、再重新按下去拖**，恰好绕开了这条路径。
+                        if (!edit) {
+                          const el = e.currentTarget;
+                          const pid = e.pointerId;
+                          const sx = e.clientX;
+                          const sy = e.clientY;
+                          grab.current = {
+                            x: sx,
+                            y: sy,
+                            timer: window.setTimeout(() => {
+                              grab.current = null;
+                              setEdit(true);
+                              try {
+                                el.setPointerCapture(pid);
+                              } catch {
+                                /* 抓不住就算了 */
+                              }
+                              const pg = pager.current;
+                              g.current = { id: i.id, scroll: pg ? pg.scrollLeft : 0 };
+                              setDrag({ id: i.id, to: { page: i.page, col: i.col, row: i.row } });
+                            }, 600),
+                          };
+                          return;
+                        }
                         // ⚠️ setPointerCapture 会抛（指针已抬起、或不是活跃指针时
                         // 扔 NotFoundError）。不接住的话整个 handler 在这儿断掉，
                         // 症状是「按住拖不动，也不报错」。
@@ -307,6 +344,13 @@ export function HomeScreen({
                         setDrag({ id: i.id, to: { page: i.page, col: i.col, row: i.row } });
                       }}
                       onPointerMove={(e) => {
+                        // 长按还没到点就动了 = 在翻页，不是要拖
+                        if (grab.current) {
+                          const gr = grab.current;
+                          if (Math.abs(e.clientX - gr.x) > 10 || Math.abs(e.clientY - gr.y) > 10) {
+                            dropGrab();
+                          }
+                        }
                         if (!edit || !g.current || !drag) return;
                         // 判边界用**可视区**，不是用某一页的网格——页滚过去之后
                         // 那一页的 rect 已经不在屏幕上了
@@ -330,8 +374,14 @@ export function HomeScreen({
                         const c = cellAt(e.clientX, e.clientY, drag.to.page, i.w, i.h);
                         if (c) setDrag({ ...drag, to: { ...drag.to, ...c } });
                       }}
-                      onPointerUp={endGesture}
-                      onPointerCancel={endGesture}
+                      onPointerUp={() => {
+                        dropGrab();
+                        endGesture();
+                      }}
+                      onPointerCancel={() => {
+                        dropGrab();
+                        endGesture();
+                      }}
                     >
                       {isWidget ? (
                         <span className="w-full h-full relative">
