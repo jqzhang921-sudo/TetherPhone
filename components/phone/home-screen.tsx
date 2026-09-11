@@ -117,13 +117,20 @@ export function HomeScreen({
 
   /// 指针落在哪一格。按网格里的相对位置反推，比逐个元素判命中省事，
   /// 也不会因为图标在动而抖。
-  const cellAt = (x: number, y: number, page: number) => {
+  /// ⚠️ **夹取范围要按被拖那个东西的大小算，不是按格子数。**
+  /// 夹到 COLS-1 的话，2 格宽的组件落在最后一列就是 3+2=5 列，越界、
+  /// 一律弹回——而往右拖正是要翻页的方向，所以症状是「组件拖不到别的屏」，
+  /// 图标（1 格宽）却没事。这个错只在大件上显形，很容易漏。
+  const cellAt = (x: number, y: number, page: number, w: number, h: number) => {
     const g = grids.current.get(page);
     if (!g) return null;
     const r = g.getBoundingClientRect();
     const col = Math.floor((x - r.left) / (cell + GAP));
     const row = Math.floor((y - r.top) / (cell + GAP));
-    return { col: Math.max(0, Math.min(COLS - 1, col)), row: Math.max(0, Math.min(ROWS - 1, row)) };
+    return {
+      col: Math.max(0, Math.min(COLS - w, col)),
+      row: Math.max(0, Math.min(ROWS - h, row)),
+    };
   };
 
   /// 手离开。翻页的话吸到最近一页；拖的话落子。
@@ -246,18 +253,37 @@ export function HomeScreen({
             >
               {/* 落点。拖到哪儿就在哪儿亮一下——元素本身不动，
                   所以跨页也不会把它从 DOM 里搬走。 */}
-              {drag && drag.to.page === pi && (
-                <div
-                  className="rounded-[22px] pointer-events-none"
-                  style={{
-                    gridColumn: `${drag.to.col + 1} / span ${placed.find((i) => i.id === drag.id)?.w ?? 1}`,
-                    gridRow: `${drag.to.row + 1} / span ${placed.find((i) => i.id === drag.id)?.h ?? 1}`,
-                    background: "color-mix(in oklab, var(--ink) 12%, transparent)",
-                    outline: "2px dashed var(--ink-faint)",
-                    outlineOffset: -2,
-                  }}
-                />
-              )}
+              {drag &&
+                drag.to.page === pi &&
+                (() => {
+                  const me = placed.find((i) => i.id === drag.id);
+                  if (!me) return null;
+                  // 放不下就变红。⚠️ **松手才发现白拖一场是最气人的**——
+                  // 落点能不能落，手还没松的时候就该看得出来。
+                  const want = { ...drag.to, w: me.w, h: me.h };
+                  const hit = occupants(
+                    placed.filter((x) => x.id !== me.id),
+                    want,
+                  );
+                  const ok =
+                    hit.length === 0 ||
+                    (hit.length === 1 && hit[0].w === me.w && hit[0].h === me.h) ||
+                    (hit.length === 1 && isFolder(hit[0].id) && me.w === 1 && me.h === 1);
+                  return (
+                    <div
+                      className="rounded-[22px] pointer-events-none"
+                      style={{
+                        gridColumn: `${drag.to.col + 1} / span ${me.w}`,
+                        gridRow: `${drag.to.row + 1} / span ${me.h}`,
+                        background: ok
+                          ? "color-mix(in oklab, var(--ink) 12%, transparent)"
+                          : "oklch(0.62 0.21 25 / 0.18)",
+                        outline: `2px dashed ${ok ? "var(--ink-faint)" : "oklch(0.62 0.21 25)"}`,
+                        outlineOffset: -2,
+                      }}
+                    />
+                  );
+                })()}
               {shown
                 .filter((i) => i.page === pi)
                 .map((i) => {
@@ -342,7 +368,7 @@ export function HomeScreen({
                             return;
                           }
                         }
-                        const c = cellAt(e.clientX, e.clientY, drag.to.page);
+                        const c = cellAt(e.clientX, e.clientY, drag.to.page, i.w, i.h);
                         if (c) setDrag({ ...drag, to: { ...drag.to, ...c } });
                       }}
                       onPointerUp={endGesture}
