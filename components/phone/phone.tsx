@@ -275,7 +275,15 @@ export function Phone() {
   /// 当前生效的玻璃下限，主题页要用它卡住滑杆
   const floor = settings.wallpaperPhotoId ? (custom?.alpha ?? 0) : cssFloor;
 
-  const openApp = (id: string, center: { x: number; y: number }) => {
+  /// 打开一个 app。
+  ///
+  /// ⚠️ **从一个 app 跳到另一个 app 要用 `replace`，不能「先关再开」。**
+  /// 关窗口是带动画的：`doCloseApp` 先播 420ms 再 `setOpen(null)`。
+  /// 先 closeApp、隔 60ms 再 openApp 的话，新窗口确实开出来了，
+  /// 然后那个 420ms 的定时器到点，把它一起关掉——
+  /// 屏幕上的表现是「点了去设置，结果回到了桌面」。
+  /// （主页那支笔能那么写，是因为它关的是 profile 那一层，不走这条动画。）
+  const openApp = (id: string, center: { x: number; y: number }, replace = false) => {
     // 打开就算看过。**在这儿记而不是在 app 里面记**——两个 app 各记一遍
     // 迟早有一个忘了，而"角标不消"是那种每次看到都烦一下的毛病。
     if (id === "moments") patchSettings({ seenMoments: Date.now() });
@@ -283,7 +291,8 @@ export function Phone() {
     // AppIcon 给的是视口坐标；窗口的 transform-origin 要的是设备框内坐标。
     const box = device.current?.getBoundingClientRect();
     setClosing(false);
-    pushLayer();
+    // 换窗口不算新开一层，否则历史里会多压一格，返回要按两次
+    if (!replace) pushLayer();
     setOpen({
       id,
       origin: box ? { x: center.x - box.left, y: center.y - box.top } : { x: 195, y: 500 },
@@ -449,6 +458,13 @@ export function Phone() {
               settings={settings}
               contacts={contacts}
               onChange={patchSettings}
+              onOpenSettings={() => {
+                const box = device.current?.getBoundingClientRect();
+                const c = box
+                  ? { x: box.left + box.width / 2, y: box.top + box.height / 2 }
+                  : { x: 0, y: 0 };
+                openApp("settings", c, true);
+              }}
             />
           ) : app.id === "moments" ? (
             <MomentsApp contacts={contacts} settings={settings} />
