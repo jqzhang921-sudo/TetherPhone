@@ -48,7 +48,13 @@ export function Edge({ radius = "inherit" }: { radius?: string | number }) {
       const d = dev.getBoundingClientRect();
       // ⚠️ 偏移相对**机身**，不是相对视口——算错原点的症状是里外接不上，
       // 还会和壁纸的纹理打出摩尔纹，看着像哪儿坏了。
-      setGeo({ x: r.left - d.left, y: r.top - d.top, w: d.width, h: d.height });
+      const next = { x: r.left - d.left, y: r.top - d.top, w: d.width, h: d.height };
+      // ⚠️ **没变就别 setState。** 六个实例每 400ms 各写一次同样的值，
+      // 等于每 400ms 整屏重渲染六遍——手感上就是「有点顿」，
+      // 而且查不出来，因为画面看着是对的。
+      setGeo((p) =>
+        p && p.x === next.x && p.y === next.y && p.w === next.w && p.h === next.h ? p : next,
+      );
     };
     measure();
     // 桌面会翻页、组件会被拖走，位置不是一次算完就完事的

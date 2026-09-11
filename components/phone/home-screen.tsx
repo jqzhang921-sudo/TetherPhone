@@ -96,12 +96,14 @@ export function HomeScreen({
     press.current = null;
   };
 
-  const gridRef = useRef<HTMLDivElement>(null);
+  /// ⚠️ **每一页的网格都要留个引用。** 原来只留了第一页的，滚到第二页之后
+  /// 拿它算格子，坐标整整差一屏——症状是「拖过去之后落点乱跳」。
+  const grids = useRef(new Map<number, HTMLDivElement>());
 
   /// 指针落在哪一格。按网格里的相对位置反推，比逐个元素判命中省事，
   /// 也不会因为图标在动而抖。
-  const cellAt = (x: number, y: number) => {
-    const g = gridRef.current;
+  const cellAt = (x: number, y: number, page: number) => {
+    const g = grids.current.get(page);
     if (!g) return null;
     const r = g.getBoundingClientRect();
     const col = Math.floor((x - r.left) / (cell + GAP));
@@ -151,9 +153,20 @@ export function HomeScreen({
     setDrag(null);
   };
 
-  const shown = drag
-    ? placed.map((i) => (i.id === drag.id ? { ...i, ...drag.to } : i))
-    : placed;
+  /// ⚠️ **拖动时元素留在原地，只画一个落点。**
+  /// 原来是把它挪到目标格再渲染，跨页时它就被搬进**另一页的 DOM**，
+  /// React 当成新元素重新挂载，指针捕获跟着没了——症状正是
+  /// 「拖不到第二屏」：手一过边界，拖拽就断了。
+  const shown = placed;
+
+  /// 拖动中要落在哪一格。翻页时顺便把那一页滚过来，否则东西飞去了看不见的地方。
+  const pager = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!drag || !pager.current) return;
+    const el = pager.current;
+    const want = drag.to.page * el.clientWidth;
+    if (Math.abs(el.scrollLeft - want) > 4) el.scrollTo({ left: want, behavior: "smooth" });
+  }, [drag]);
 
   return (
     <div
@@ -169,11 +182,15 @@ export function HomeScreen({
           什么该放第一屏——而那个决定正是桌面的全部意义。
           用 scroll-snap 而不是自己算位移：手指跟随、惯性、回弹都是浏览器的活儿。 */}
       <div
+        ref={pager}
         className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden no-bar flex"
         style={{ scrollSnapType: edit ? "none" : "x mandatory", touchAction: edit ? "none" : "pan-x" }}
         onScroll={(e) => {
+          // ⚠️ 滚动事件一帧来一次。**页号没变就别写 state**——
+          // 不然滑一次屏就是几十次整屏重渲染（每次还带着六层折射）。
           const el = e.currentTarget;
-          setPage(Math.round(el.scrollLeft / Math.max(1, el.clientWidth)));
+          const n = Math.round(el.scrollLeft / Math.max(1, el.clientWidth));
+          setPage((p) => (p === n ? p : n));
         }}
       >
         {Array.from({ length: pages }, (_, pi) => (
@@ -183,7 +200,11 @@ export function HomeScreen({
             style={{ scrollSnapAlign: "start" }}
           >
             <div
-              ref={pi === 0 ? (el) => { measure(el); gridRef.current = el; } : undefined}
+              ref={(el) => {
+                if (el) grids.current.set(pi, el);
+                else grids.current.delete(pi);
+                if (pi === 0) measure(el);
+              }}
               className="grid"
               style={{
                 gridTemplateColumns: `repeat(${COLS}, 1fr)`,
@@ -191,6 +212,20 @@ export function HomeScreen({
                 gap: GAP,
               }}
             >
+              {/* 落点。拖到哪儿就在哪儿亮一下——元素本身不动，
+                  所以跨页也不会把它从 DOM 里搬走。 */}
+              {drag && drag.to.page === pi && (
+                <div
+                  className="rounded-[22px] pointer-events-none"
+                  style={{
+                    gridColumn: `${drag.to.col + 1} / span ${placed.find((i) => i.id === drag.id)?.w ?? 1}`,
+                    gridRow: `${drag.to.row + 1} / span ${placed.find((i) => i.id === drag.id)?.h ?? 1}`,
+                    background: "color-mix(in oklab, var(--ink) 12%, transparent)",
+                    outline: "2px dashed var(--ink-faint)",
+                    outlineOffset: -2,
+                  }}
+                />
+              )}
               {shown
                 .filter((i) => i.page === pi)
                 .map((i) => {
@@ -228,7 +263,9 @@ export function HomeScreen({
                       }}
                       onPointerMove={(e) => {
                         if (!edit || !drag) return;
-                        const box = gridRef.current?.getBoundingClientRect();
+                        // 判边界用**可视区**，不是用某一页的网格——页滚过去之后
+                        // 那一页的 rect 已经不在屏幕上了
+                        const box = pager.current?.getBoundingClientRect();
                         // 拖到屏幕边上就翻页。**要有冷却**，否则贴着边一帧翻一页。
                         if (box && Date.now() - flipAt.current > 700) {
                           const near = 26;
@@ -243,7 +280,7 @@ export function HomeScreen({
                             return;
                           }
                         }
-                        const c = cellAt(e.clientX, e.clientY);
+                        const c = cellAt(e.clientX, e.clientY, drag.to.page);
                         if (c) setDrag({ ...drag, to: { ...drag.to, ...c } });
                       }}
                       onPointerUp={commit}
