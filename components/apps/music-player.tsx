@@ -16,6 +16,10 @@ import { faceOf, useMe } from "@/lib/os/avatar";
 
 type Bubble = { id: string; who: "me" | "them"; text: string };
 
+/// 「我没有要说的」。和 chat-app 里那条 PASS 同一个用意：
+/// 模型不擅长输出空字符串，得给它一个好写的记号，而且记号要认得宽。
+const SILENT = /^([-—–.。·\s]{0,3}|(?:不说|没有|无|不评论|没什么|没有要说的)[.。]?)$/;
+
 /// 歌词上下两头淡出。没有它，滚动的词会硬生生地从边上切断。
 const FADE =
   "linear-gradient(to bottom, transparent 0, #000 14%, #000 86%, transparent 100%)";
@@ -55,6 +59,13 @@ export function MusicPlayer({
   const [busy, setBusy] = useState(false);
   const [picking, setPicking] = useState(false);
   const asked = useRef<string | null>(null);
+  /// 上一首换歌时它开没开口。
+  ///
+  /// ⚠️ **这是条硬拦，不指望提示词。** 提示词里写一百遍「默认别说」，
+  /// 模型面对「现在该说点什么吗」还是倾向于说点什么——
+  /// 主动打招呼那条也是这么退化的（见 chat-app 的 OPEN_RULE）。
+  /// 连着两首都开口，无论说得多好都变成报幕，所以第二首直接不问。
+  const spokeLast = useRef(false);
   const bottom = useRef<HTMLDivElement>(null);
 
   /// 歌词读播放器那一份，**这儿不自己再拿一次**。
@@ -96,6 +107,11 @@ export function MusicPlayer({
     if (asked.current === t.id) return;
     asked.current = t.id;
     setBubbles([]);
+    // 上一首刚说过，这一首就不问了。她插过话就不算——那说明你们在聊。
+    if (spokeLast.current) {
+      spokeLast.current = false;
+      return;
+    }
     void (async () => {
       let obj: string | null = null;
       try {
@@ -116,8 +132,11 @@ export function MusicPlayer({
         }
         const said = await completeOnce(settings, together, songPrompt(t.title, t.artist, lrc, sound, settings, together));
         const w = said.trim();
-        if (w && !/^(不说|没有|无|不评论)$/.test(w)) {
+        // ⚠️ 出口要认得宽。不同模型会回 `-`、`—`、「不说」、「没有」、
+        // 甚至加个句号——认死一种写法，剩下那些就都变成了它说出口的话。
+        if (w && !SILENT.test(w)) {
           setBubbles([{ id: newId(), who: "them", text: w }]);
+          spokeLast.current = true;
         }
       } catch {
         /* 说不出来就算了，一句闲话不该变成一条报错 */
@@ -130,6 +149,8 @@ export function MusicPlayer({
   const send = useCallback(async () => {
     const text = input.trim();
     if (!text || busy || !together || !t) return;
+    // 她开口了 = 你们在聊天，不是它在报幕。下一首可以再说。
+    spokeLast.current = false;
     setInput("");
     const mine: Bubble = { id: newId(), who: "me", text };
     const shown = [...bubbles, mine];
@@ -654,14 +675,26 @@ function songPrompt(
 ) {
   return [
     ...identity(c, settings),
-    `你们在一起听歌。现在放的是《${title}》${artist ? " - " + artist : ""}。`,
+    `你们在一起听歌。换到了《${title}》${artist ? " - " + artist : ""}。`,
     lrc ? `歌词（节选）：\n${lrc}` : "",
-    sound ? `这首**量出来**的样子：${sound}。` : "",
+    sound ? `这首量出来的样子：${sound}。` : "",
+    "",
     "⚠️ 上面那些是从声波里量出来的数，**不是你听到的**——你没有听觉。",
-    "可以据此说话（比如「这首挺快的」「后面收下去了」），",
-    "但别写「我听到…」「这个前奏真好听」这种假装有听觉的话。",
-    "想说点什么就只输出那句话（一句，短，像并排坐着随口说的）；",
-    "没什么想说的就输出「不说」——**这也是常有的事，别硬凑**。",
+    "它们在这儿是**为了让你不说错话**（别把慢歌说成吵），",
+    "**不是给你当话题的**。",
+    "",
+    "⚠️ **把量出来的数换成一句话，不算有话说。**",
+    "「这首慢，后面会越来越满」——这句就是把上面那行数抄了一遍，",
+    "她自己听得见快慢，不需要你复述一遍。这种话说一次是新鲜，",
+    "**每首歌都说一次就成了报幕**。",
+    "",
+    "**默认什么都不说。** 换歌本身不是开口的理由——",
+    "并排坐着听歌的人不会每首都点评一句。",
+    "只有一种情况该开口：**这一首让你想起了具体的什么**，",
+    "而且那件事跟你们俩有关（她说过的一句话、你们之间发生过的事、",
+    "这首歌的词正好戳到某件事）。具体到能指认，不是一种感觉。",
+    "",
+    "没有就**只输出一个减号 `-`**，别的一个字都不要写。沉默是常态，不是失败。",
   ]
     .filter(Boolean)
     .join("\n");
