@@ -503,7 +503,14 @@ export function MusicApp({
           {p.trial && (
             <p className="text-[11px] pt-1" style={{ color: "var(--ink-dim)" }}>
               这首只有试听片段{p.len > 0 ? `，${mmss(p.len)} 就断` : ""}——
-              {p.loggedIn ? "你的账号没有这首的完整权限。" : "要先登录（见 tools/music-login.mjs）。"}
+              {/* ⚠️ 原来这儿写的是「见 tools/music-login.mjs」。那是登录界面还没做
+                  之前的话，现在设置里就有——**把人指向一个脚本，是在说「你自己
+                  想办法」**。同类的过期指路以后改完 UI 要顺手搜一遍。 */}
+              {p.loggedIn
+                ? "你的账号现在没有这首的完整权限。"
+                : "要先登录：设置 → 音乐账号。"}
+              {/* 权限是每次播放现问音源的，所以刚换了权限不用重启，退出去重进这首就行 */}
+              {p.loggedIn && "刚开了会员的话，退出这首再点一次就是新的。"}
             </p>
           )}
           {p.err && (
