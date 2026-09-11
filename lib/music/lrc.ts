@@ -38,6 +38,34 @@ export function lineAt(lines: Line[], at: number): number {
   return i;
 }
 
+/// 唱到这儿了——**给模型看的那一小段**。
+///
+/// ⚠️ **给它「现在这句」，不是整首歌词。** 整首扔进去，它只能泛泛地聊
+/// 「这首歌讲了什么」；而一起听的时候，真正发生的事是**这一句刚过去**。
+/// 前后各带一句，它才知道是在开头、在副歌、还是快完了。
+///
+/// ⚠️ 没唱到（前奏、间奏、还没开始）就返回 null，**不要硬给第一句**——
+/// 那会让它对着一句还没响的词说话。
+export function around(lines: Line[], at: number): { prev: string; cur: string; next: string } | null {
+  const i = lineAt(lines, at);
+  if (i < 0) return null;
+  return {
+    prev: lines[i - 1]?.text ?? "",
+    cur: lines[i].text,
+    next: lines[i + 1]?.text ?? "",
+  };
+}
+
+/// 把上面那一小段写成给模型读的话。没词就是空串，调用方直接 filter 掉。
+export function lyricLine(lines: Line[], at: number): string {
+  const w = around(lines, at);
+  if (!w) return "";
+  const side = [w.prev && `上一句「${w.prev}」`, w.next && `下一句「${w.next}」`]
+    .filter(Boolean)
+    .join("，");
+  return `歌词正唱到：「${w.cur}」${side ? `（${side}）` : ""}`;
+}
+
 /// 没有时间戳时，把原文拆成能显示的几行。
 export const plainLines = (raw: string) =>
   raw

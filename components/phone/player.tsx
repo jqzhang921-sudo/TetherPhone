@@ -8,7 +8,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { playUrl, type Track } from "@/lib/music/store";
+import { lyric as fetchLyric, playUrl, type Track } from "@/lib/music/store";
+import { lyricLine, parseLrc, plainLines, type Line } from "@/lib/music/lrc";
 
 /// 播放器住在**壳里**，不在音乐 app 里。
 ///
@@ -24,6 +25,16 @@ type Ctl = {
   trial: boolean;
   /// 音源那边有没有登录态。决定试听提示该说哪句话。
   loggedIn: boolean;
+  /// 这首的歌词，已经拆好时间轴。
+  ///
+  /// ⚠️ **歌词住在播放器里，不在播放页里。** 原来是播放页自己去拿一份、
+  /// 换歌那句提示词又去拿一份，两份各拿各的；而现在要看歌词的还多了一个
+  /// ——**它**。谁能看见播放器，谁就该能看见歌词，这样才只拿一次。
+  lines: Line[];
+  /// 没时间轴的歌词（纯文本那种）。界面上退回整块显示要用。
+  plain: string[];
+  /// 唱到这儿了，写成一句给模型读的话。没唱到就是空串。
+  nowLyric: () => string;
   /// 待播清单。**和歌单不是一回事**：歌单是网易云那边的，
   /// 这个是她（或者它）现在挑出来要放的这几首。
   queue: Track[];
@@ -134,6 +145,35 @@ export function PlayerProvider({
     [track, queue, load, onSong],
   );
 
+  /// 换歌就去拿一次歌词。
+  ///
+  /// ⚠️ **不管有没有人在看歌词都拿。** 以前是「点开歌词那一层才去拿」，
+  /// 省一个请求；但现在它也要读，而它读的时候不该等一个网络往返。
+  /// 一首歌一个小 JSON，换来的是「问它这句什么意思」能当场答上。
+  const [lines, setLines] = useState<Line[]>([]);
+  const [plain, setPlain] = useState<string[]>([]);
+  useEffect(() => {
+    setLines([]);
+    setPlain([]);
+    if (!track?.songId || !apiBase.trim()) return;
+    let alive = true;
+    void fetchLyric(apiBase.trim(), track.songId).then((raw) => {
+      if (!alive) return;
+      setLines(parseLrc(raw));
+      setPlain(plainLines(raw));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [track?.songId, apiBase]);
+
+  /// ⚠️ 读的是 `atRef`，不是 `at`。挂在 `at` 上的话这个函数每 250ms 换一个
+  /// 引用，所有拿着它的 memo 跟着每 250ms 重算一遍——而它只在模型要说话的
+  /// 那一刻被调用一次。
+  const atRef = useRef(0);
+  atRef.current = at;
+  const nowLyric = useCallback(() => lyricLine(lines, atRef.current), [lines]);
+
   const enqueue = useCallback((t: Track) => {
     setQueue((q) => (q.some((x) => x.id === t.id) ? q : [...q, t]));
   }, []);
@@ -233,6 +273,9 @@ export function PlayerProvider({
   const value = useMemo<Ctl>(
     () => ({
       track,
+      lines,
+      plain,
+      nowLyric,
       queue,
       enqueue,
       dropAt,
@@ -252,7 +295,7 @@ export function PlayerProvider({
         if (audio.current) audio.current.currentTime = s;
       },
     }),
-    [track, queue, enqueue, dropAt, moveTo, playing, at, len, err, trial, loggedIn, play, step, stop],
+    [track, lines, plain, nowLyric, queue, enqueue, dropAt, moveTo, playing, at, len, err, trial, loggedIn, play, step, stop],
   );
 
   return (

@@ -46,6 +46,8 @@ function systemPrompt(
   notes: Note[],
   /// 上一条消息的时刻。null = 还没说过话。
   lastAt: number | null,
+  /// 现在正在放什么、唱到哪。没在放就是空串。
+  playing: string,
 ) {
   const bits: string[] = [];
   if (c.name.trim()) bits.push(`你叫${c.name.trim()}。`);
@@ -89,7 +91,10 @@ function systemPrompt(
   // ⚠️ 时间**不进消息正文**。给每条前面贴 `[14:32]` 的话，模型会学着也这么写，
   // 时间戳就漏进它说的话里了。它真正需要的只有两件事：现在几点、
   // 距上次说话隔了多久。
+  // ⚠️ 和时间一样放最后：**这两样每条消息都在变**。
+  // 放前面会把名字、人设、记忆、规矩的前缀缓存整段打散。
   bits.push(nowLine(lastAt));
+  if (playing) bits.push(playing);
 
   return bits.join("\n");
 }
@@ -389,6 +394,17 @@ export function ChatApp({
         notes,
         // 「上一次说话」= 这次她开口之前的最后一条，不是刚发出去这条
         msgs.at(-1)?.at ?? null,
+        // ⚠️ **正在放什么要在这儿现取。** 放在 useMemo 里的话，她随口
+        // 说「这句好戳」的时候，模型手上还是上一句甚至上一首。
+        player.track
+          ? [
+              `你们正一起听《${player.track.title}》${player.track.artist ? " - " + player.track.artist : ""}。`,
+              player.nowLyric(),
+              "她要是说到「这句」「这一段」，指的多半就是上面那句。",
+            ]
+              .filter(Boolean)
+              .join("\n")
+          : "",
       ) + (first ? OPEN_RULE : "");
       const replyId = newId();
       let visible = "";

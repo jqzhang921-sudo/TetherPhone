@@ -3,8 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { mmss, usePlayer } from "@/components/phone/player";
 import { analyze, describe } from "@/lib/music/analyze";
 import { skyOf, toneFromImage, type Tone } from "@/lib/music/tone";
-import { coverUrl, likedIds, lyric as fetchLyric, setLiked } from "@/lib/music/store";
-import { lineAt, parseLrc, plainLines, type Line } from "@/lib/music/lrc";
+import { coverUrl, likedIds, setLiked } from "@/lib/music/store";
+import { lineAt } from "@/lib/music/lrc";
 import { WALLPAPERS, wallpaperById } from "@/lib/os/wallpapers";
 import { completeOnce, identity } from "@/lib/ai";
 import { loadMsgs, newId, saveMsgs, type Msg } from "@/lib/chat/store";
@@ -57,11 +57,10 @@ export function MusicPlayer({
   const asked = useRef<string | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
 
-  /// 歌词。**点标题那块才去拿**——一进播放页就拉一次，等于每换一首歌
-  /// 都替她问一次音源，而大部分时候她根本没在看歌词。
-  const [words, setWords] = useState<{ songId: string; lines: Line[]; plain: string[] } | null>(null);
+  /// 歌词读播放器那一份，**这儿不自己再拿一次**。
+  /// 它也要读歌词（见 player.tsx），既然那边已经拿了，两处各拿各的
+  /// 就是同一首歌问两遍音源，而且两份还可能不一样。
   const [showWords, setShowWords] = useState(false);
-  const [wordsBusy, setWordsBusy] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
 
   /// 待播清单那一层，和「一起听」那一层
@@ -100,10 +99,10 @@ export function MusicPlayer({
     void (async () => {
       let obj: string | null = null;
       try {
-        let lrc = "";
-        if (t.kind === "online" && t.songId && base) {
-          lrc = (await fetchLyric(base, t.songId)).replace(/\[[\d:.]+\]/g, "").trim().slice(0, 300);
-        }
+        // 播放器已经拿过一份了，这儿直接用
+        const lrc = (p.lines.length ? p.lines.map((l) => l.text) : p.plain)
+          .join("\n")
+          .slice(0, 300);
         const src =
           t.kind === "local" && t.blob
             ? (obj = URL.createObjectURL(t.blob))
@@ -163,6 +162,10 @@ export function MusicPlayer({
         [
           ...identity(together, settings),
           `你们在一起听《${t.title}》${t.artist ? " - " + t.artist : ""}。`,
+          // ⚠️ **这一句是「一起听」和「各听各的」之间的全部差别。**
+          // 只给歌名的话，它只能聊这首歌是什么；给了正唱到的这句，
+          // 它才接得住「这句好戳」——而那才是坐在一起听的样子。
+          p.nowLyric(),
           `刚才说到：\n${recent}`,
           "接着聊。一两句，像并排坐着说话，别长。只输出你要说的那句。",
         ].join("\n"),
@@ -225,21 +228,7 @@ export function MusicPlayer({
     setShowWords(false);
   }, [t?.songId, t?.id]);
 
-  const openWords = async () => {
-    if (showWords) return setShowWords(false);
-    setShowWords(true);
-    if (!t?.songId || !base) return;
-    if (words?.songId === t.songId) return;
-    setWordsBusy(true);
-    try {
-      const raw = await fetchLyric(base, t.songId);
-      setWords({ songId: t.songId, lines: parseLrc(raw), plain: plainLines(raw) });
-    } finally {
-      setWordsBusy(false);
-    }
-  };
-
-  const cur = words && words.lines.length ? lineAt(words.lines, p.at) : -1;
+  const cur = p.lines.length ? lineAt(p.lines, p.at) : -1;
 
   /// 跟着唱到的那句滚。
   ///
@@ -290,12 +279,8 @@ export function MusicPlayer({
           >
             {/* 上下各垫半屏：第一句和最后一句也能滚到正中间 */}
             <div style={{ height: "42%" }} />
-            {wordsBusy ? (
-              <p className="text-[13px]" style={{ color: "var(--ink-faint)" }}>
-                在拿歌词…
-              </p>
-            ) : words && words.lines.length ? (
-              words.lines.map((l, i) => (
+            {p.lines.length ? (
+              p.lines.map((l, i) => (
                 <p
                   key={`${l.t}-${i}`}
                   data-line={i}
@@ -311,12 +296,12 @@ export function MusicPlayer({
                   {l.text}
                 </p>
               ))
-            ) : words && words.plain.length ? (
+            ) : p.plain.length ? (
               <>
                 <p className="text-[11px] pb-2" style={{ color: "var(--ink-faint)" }}>
                   这首的歌词没有时间轴，跟不了唱
                 </p>
-                {words.plain.map((l, i) => (
+                {p.plain.map((l, i) => (
                   <p key={i} className="text-[15px] leading-relaxed py-1" style={{ color: "var(--ink-dim)" }}>
                     {l}
                   </p>
@@ -376,7 +361,10 @@ export function MusicPlayer({
       {/* 点这块开歌词。**点字，不是点一个「词」按钮**——
           歌名和歌手本来就是「这首是什么」，歌词是同一件事的展开。 */}
       {/* pt 大一点：歌名整块往下来一点，和封面之间留口气 */}
-      <button onClick={() => void openWords()} className="shrink-0 px-8 pt-6 text-center w-full active:opacity-60">
+      <button
+        onClick={() => setShowWords((v) => !v)}
+        className="shrink-0 px-8 pt-6 text-center w-full active:opacity-60"
+      >
         <div className="text-[19px] font-medium truncate" style={{ color: "var(--ink)" }}>
           {t.title}
         </div>
