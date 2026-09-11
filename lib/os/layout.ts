@@ -21,7 +21,16 @@ export type Placed = { id: string } & Spot & Size;
 export function parseLayout(s: string): Map<string, Spot> {
   const out = new Map<string, Spot>();
   for (const chunk of s.split(";")) {
-    const [id, rest] = chunk.split(":");
+    // ⚠️ **按最后一个冒号切，不能 split(":")。**
+    // id 自己就带冒号（组件是 `w:clock`，文件夹是 `f:xxx`），
+    // `"w:clock:0,1,2".split(":")` 会拆成三段，id 变成 "w"、坐标变成 NaN，
+    // **整条被丢掉**。症状极其误导：存进去是对的，读回来没了，
+    // 于是组件每次重新渲染都被自动落位回原处——看起来就是「拖完又弹回去」。
+    // 而图标 id 不带冒号，一直是好的，所以症状表现为「图标能拖、组件不能」。
+    const cut = chunk.lastIndexOf(":");
+    if (cut <= 0) continue;
+    const id = chunk.slice(0, cut);
+    const rest = chunk.slice(cut + 1);
     if (!id || !rest) continue;
     const [p, c, r] = rest.split(",").map(Number);
     if (![p, c, r].every(Number.isFinite)) continue;
