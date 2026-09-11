@@ -195,6 +195,24 @@ export function ThemeApp({
             那时候撑起玻璃感的是边和顶上那道光，不是模糊。
           </p>
         </div>
+
+        <div>
+          <div className="text-[12px] pb-1" style={{ color: "var(--ink-faint)" }}>
+            边缘的厚度
+          </div>
+          <Slider
+            value={settings.glassEdge}
+            fallback={16}
+            min={0}
+            max={40}
+            unit="px"
+            onCommit={(v) => onChange({ glassEdge: v })}
+          />
+          <p className="text-[11px] leading-relaxed pt-1.5" style={{ color: "var(--ink-faint)" }}>
+            边上那圈会把壁纸「挤」进来一点，像玻璃真的有厚度。拉到 0 就是平的。
+            只在桌面的卡片和底座上有——app 里面的玻璃底下不是壁纸，挤不出东西来。
+          </p>
+        </div>
       </Card>
 
       <Card title="气泡" hint="没挑的话就是「跟随主题」：你那侧用联系人的颜色，换个人聊天就换个色。">

@@ -9,6 +9,7 @@ import { Glyph } from "@/components/weather/glyph";
 import { displayName, type Contact } from "@/lib/os/contacts";
 import type { Settings } from "@/lib/os/settings";
 import { Avatar } from "./avatar";
+import { Edge } from "./refraction";
 import { faceOf, useMe } from "@/lib/os/avatar";
 
 export type WidgetId = "clock" | "weather" | "music" | "photos" | "notes";
@@ -57,8 +58,11 @@ function Card({
           const r = e.currentTarget.getBoundingClientRect();
           onOpen(app, { x: r.left + r.width / 2, y: r.top + r.height / 2 });
         }}
-        className="glass rounded-[26px] w-full flex-1 min-h-0 p-2.5 text-left flex flex-col active:scale-[0.97] transition-transform"
+        className="glass rounded-[26px] w-full flex-1 min-h-0 p-2.5 text-left flex flex-col active:scale-[0.97] transition-transform relative"
       >
+        {/* 边上那一点折射。**放在最前面**：它是背景的一部分，
+            后面的内容自然盖在它上面，不用操心 z-index。 */}
+        <Edge radius={26} />
         {children}
       </button>
       <span

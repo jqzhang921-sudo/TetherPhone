@@ -19,6 +19,9 @@ export type Settings = {
   /// 玻璃的模糊半径 px，0 = 用默认（20）。**质感就是它**——
   /// 玻璃在平坦背景上看不出糊，全靠边和高光；有花纹时这个数才说了算。
   glassBlur: number;
+  /// 玻璃边上那条折射带多宽（px），0 = 平的。
+  /// 默认给一点点：她要的是「稍微有点折射，不用太平」。
+  glassEdge: number;
   /// 气泡样式 id，空 = 跟随主题
   bubbleStyle: string;
   userEmoji: string;
@@ -77,6 +80,7 @@ export const DEFAULT_SETTINGS: Settings = {
   glassAlpha: 0,
   iconAlpha: 0,
   glassBlur: 0,
+  glassEdge: 16,
   bubbleStyle: "",
   userEmoji: "🌱",
   userAvatarAt: 0,

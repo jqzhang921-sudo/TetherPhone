@@ -18,6 +18,7 @@ import { APPS, dockApps, appById } from "@/lib/apps/registry";
 import type { Contact } from "@/lib/os/contacts";
 import type { Settings } from "@/lib/os/settings";
 import { PhotoPicker } from "@/components/photos/photo-picker";
+import { Edge } from "./refraction";
 import {
   FOLDER_PREFIX,
   cleanName,
@@ -387,8 +388,9 @@ export function HomeScreen({
       )}
 
       <div className="px-4 pb-3">
-        <div className="glass rounded-[30px] px-3 py-3">
-          <div className="grid grid-cols-4 gap-3">
+        <div className="glass rounded-[30px] px-3 py-3 relative">
+          <Edge radius={30} />
+          <div className="grid grid-cols-4 gap-3 relative">
             {dockApps.map((a) => (
               <AppIcon key={a.id} app={a} onOpen={onOpen} showLabel={false} badge={badges[a.id] ?? 0} />
             ))}

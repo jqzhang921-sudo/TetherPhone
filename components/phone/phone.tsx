@@ -5,6 +5,7 @@ import { HomeScreen } from "./home-screen";
 import { AppWindow } from "./app-window";
 import { ContactSheet } from "./contact-sheet";
 import { ProfilePage, type Who } from "./profile-page";
+import { RefractionProvider } from "./refraction";
 import { ME_TINT, faceOf, useMe } from "@/lib/os/avatar";
 import { displayName } from "@/lib/os/contacts";
 import { ChatApp } from "@/components/apps/chat-app";
@@ -57,6 +58,9 @@ export function Phone() {
   /// 从主页跳进聊天时带上「开谁」。**app 关掉就清空**——
   /// 不清的话下次从桌面点聊天会莫名其妙直接进上一个人的会话。
   const [chatWith, setChatWith] = useState<string | null>(null);
+  /// ⚠️ 机身元素得进 state，不能只放 ref：折射那层是在**子组件**里读它的，
+  /// ref 变化不触发重渲染，子组件第一帧拿到的会是 null 然后再也不更新。
+  const [deviceEl, setDeviceEl] = useState<HTMLElement | null>(null);
   const [badges, setBadges] = useState<Record<string, number>>({});
   const device = useRef<HTMLDivElement>(null);
   /// 计时回调要拿到最新的联系人和「在和谁听」，但又不能把它们塞进依赖里
@@ -343,8 +347,19 @@ export function Phone() {
   return (
     // 播放器套在最外面：退出音乐 app 歌还在放，audio 元素不跟着卸载。
     <PlayerProvider apiBase={settings.musicApiBase} onListened={onListened} onSong={onSong}>
+    <RefractionProvider
+      value={{
+        url: custom?.url,
+        css: custom ? undefined : wallpaper.css,
+        device: deviceEl,
+        edge: settings.glassEdge,
+      }}
+    >
     <div
-      ref={device}
+      ref={(el) => {
+        device.current = el;
+        setDeviceEl(el);
+      }}
       className="device"
       data-tone={custom ? (custom.dark ? "dark" : "light") : wallpaper.tone}
       style={{
@@ -501,6 +516,7 @@ export function Phone() {
         />
       )}
     </div>
+    </RefractionProvider>
     </PlayerProvider>
   );
 }
