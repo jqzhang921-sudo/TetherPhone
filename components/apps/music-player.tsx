@@ -4,6 +4,7 @@ import { mmss, usePlayer } from "@/components/phone/player";
 import { analyze, describe } from "@/lib/music/analyze";
 import { skyOf, toneFromImage, type Tone } from "@/lib/music/tone";
 import { coverUrl, lyric as fetchLyric } from "@/lib/music/store";
+import { lineAt, parseLrc, plainLines, type Line } from "@/lib/music/lrc";
 import { WALLPAPERS, wallpaperById } from "@/lib/os/wallpapers";
 import { completeOnce, identity } from "@/lib/ai";
 import { loadMsgs, newId, saveMsgs, type Msg } from "@/lib/chat/store";
@@ -13,6 +14,10 @@ import { Avatar } from "@/components/phone/avatar";
 import { faceOf, useMe } from "@/lib/os/avatar";
 
 type Bubble = { id: string; who: "me" | "them"; text: string };
+
+/// 歌词上下两头淡出。没有它，滚动的词会硬生生地从边上切断。
+const FADE =
+  "linear-gradient(to bottom, transparent 0, #000 14%, #000 86%, transparent 100%)";
 
 const span = (sec: number) => {
   if (sec < 60) return `${Math.floor(sec)} 秒`;
@@ -47,6 +52,13 @@ export function MusicPlayer({
   const [picking, setPicking] = useState(false);
   const asked = useRef<string | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
+
+  /// 歌词。**点标题那块才去拿**——一进播放页就拉一次，等于每换一首歌
+  /// 都替她问一次音源，而大部分时候她根本没在看歌词。
+  const [words, setWords] = useState<{ songId: string; lines: Line[]; plain: string[] } | null>(null);
+  const [showWords, setShowWords] = useState(false);
+  const [wordsBusy, setWordsBusy] = useState(false);
+  const scroller = useRef<HTMLDivElement>(null);
 
   const base = settings.musicApiBase.trim();
   const t = p.track;
@@ -160,6 +172,40 @@ export function MusicPlayer({
 
   if (!t) return null;
 
+  /// 换一首就把歌词收起来。不收的话下一首还摊着上一首的词，
+  /// 而且它一句都不会亮——看着像歌词坏了。
+  useEffect(() => {
+    setShowWords(false);
+  }, [t?.songId, t?.id]);
+
+  const openWords = async () => {
+    if (showWords) return setShowWords(false);
+    setShowWords(true);
+    if (!t?.songId || !base) return;
+    if (words?.songId === t.songId) return;
+    setWordsBusy(true);
+    try {
+      const raw = await fetchLyric(base, t.songId);
+      setWords({ songId: t.songId, lines: parseLrc(raw), plain: plainLines(raw) });
+    } finally {
+      setWordsBusy(false);
+    }
+  };
+
+  const cur = words && words.lines.length ? lineAt(words.lines, p.at) : -1;
+
+  /// 跟着唱到的那句滚。
+  ///
+  /// ⚠️ **自己算 scrollTop，不要用 `scrollIntoView`。** 它会连带把祖先
+  /// 一起滚——播放页本身是 `absolute inset-0` 的一层，被滚一下整页就歪了。
+  useEffect(() => {
+    const box = scroller.current;
+    if (!box || cur < 0) return;
+    const el = box.querySelector<HTMLElement>(`[data-line="${cur}"]`);
+    if (!el) return;
+    box.scrollTo({ top: el.offsetTop - box.clientHeight / 2 + el.offsetHeight / 2, behavior: "smooth" });
+  }, [cur]);
+
   return (
     <div
       data-tone={dark ? "dark" : "light"}
@@ -180,11 +226,93 @@ export function MusicPlayer({
         </button>
       </div>
 
-      {/* 两个头像：中间偏上。一进来先看到「谁和你在这儿」 */}
-      <div className="shrink-0 flex flex-col items-center gap-1 pb-3">
+      {/* 封面，或者摊开的歌词——**它俩占同一块地方**。
+          播放页上最大的那块就该给「现在在听的这首」，歌词来了就换它上台，
+          再往下挤只会把两样都挤小。 */}
+      {/* ⚠️ **封面这块不吃多余的竖向空间，气泡那块才吃。**
+          原来它是 flex-1，于是剩下的空全摊在封面上下，整个画面被推到中间，
+          封面看着「浮」在那儿。现在空留给下面，封面、头像、歌名连成一块贴上去。
+          摊开歌词时反过来——那时候它是主角，要多高有多高。 */}
+      <div className={`${showWords ? "flex-1" : "shrink-0"} min-h-0 px-10 pt-1 grid place-items-center`}>
+        {showWords ? (
+          <div
+            ref={scroller}
+            onClick={() => setShowWords(false)}
+            className="w-full h-full overflow-y-auto no-bar text-center"
+            style={{ maskImage: FADE, WebkitMaskImage: FADE }}
+          >
+            {/* 上下各垫半屏：第一句和最后一句也能滚到正中间 */}
+            <div style={{ height: "42%" }} />
+            {wordsBusy ? (
+              <p className="text-[13px]" style={{ color: "var(--ink-faint)" }}>
+                在拿歌词…
+              </p>
+            ) : words && words.lines.length ? (
+              words.lines.map((l, i) => (
+                <p
+                  key={`${l.t}-${i}`}
+                  data-line={i}
+                  className="text-[16px] leading-relaxed py-1.5 transition-all duration-300"
+                  style={{
+                    color: i === cur ? "var(--ink)" : "var(--ink-faint)",
+                    // 唱到的那句放大一点。**只靠颜色不够**——
+                    // 背景是从封面取的色，深浅两边的对比度都不一定够。
+                    transform: i === cur ? "scale(1.06)" : "scale(1)",
+                    fontWeight: i === cur ? 500 : 400,
+                  }}
+                >
+                  {l.text}
+                </p>
+              ))
+            ) : words && words.plain.length ? (
+              <>
+                <p className="text-[11px] pb-2" style={{ color: "var(--ink-faint)" }}>
+                  这首的歌词没有时间轴，跟不了唱
+                </p>
+                {words.plain.map((l, i) => (
+                  <p key={i} className="text-[15px] leading-relaxed py-1" style={{ color: "var(--ink-dim)" }}>
+                    {l}
+                  </p>
+                ))}
+              </>
+            ) : (
+              <p className="text-[13px]" style={{ color: "var(--ink-faint)" }}>
+                {t.kind === "online" ? "这首没有歌词" : "本地文件没有歌词"}
+              </p>
+            )}
+            <div style={{ height: "42%" }} />
+          </div>
+        ) : (
+          <div
+            className="rounded-[26px] overflow-hidden grid place-items-center"
+            style={{
+              width: "min(100%, 62vh)",
+              aspectRatio: "1 / 1",
+              background: "color-mix(in oklab, var(--glass-tint) 30%, transparent)",
+              boxShadow: "0 18px 48px oklch(0 0 0 / 0.35)",
+            }}
+          >
+            {cover ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={cover} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <svg viewBox="0 0 24 24" width="54" height="54" fill="none" stroke="var(--ink-faint)"
+                strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 17V5l10-2v12" />
+                <circle cx="6.5" cy="17.5" r="2.6" />
+                <circle cx="16.5" cy="15.5" r="2.6" />
+              </svg>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* 头像挪到封面下面。原来在封面上头，把最大的那块往下压了一截。
+          在这儿它还是「谁和你在这儿」，只是不再跟封面抢最上面那个位置。 */}
+      <div className="shrink-0 flex items-center justify-center gap-2 pt-3">
         <span className="flex items-center -space-x-2.5">
-          <Avatar face={me} size={44} ring />
-          {together && <Avatar face={faceOf(together)} size={44} ring />}
+          <Avatar face={me} size={30} ring />
+          {together && <Avatar face={faceOf(together)} size={30} ring />}
         </span>
         <span className="text-[11px]" style={{ color: "var(--ink-faint)" }}>
           {together
@@ -193,49 +321,31 @@ export function MusicPlayer({
         </span>
       </div>
 
-      {/* 封面。**多出来的竖向空间给它**——气泡少的时候封面大一点，
-          比在封面和气泡之间留一块莫名其妙的空白好看。 */}
-      <div className="flex-1 min-h-0 px-10 grid place-items-center">
-        <div
-          className="rounded-[26px] overflow-hidden grid place-items-center"
-          style={{
-            width: "min(100%, 62vh)",
-            aspectRatio: "1 / 1",
-            background: "color-mix(in oklab, var(--glass-tint) 30%, transparent)",
-            boxShadow: "0 18px 48px oklch(0 0 0 / 0.35)",
-          }}
-        >
-          {cover ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={cover} alt="" className="w-full h-full object-cover" />
-          ) : (
-            <svg viewBox="0 0 24 24" width="54" height="54" fill="none" stroke="var(--ink-faint)"
-              strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 17V5l10-2v12" />
-              <circle cx="6.5" cy="17.5" r="2.6" />
-              <circle cx="16.5" cy="15.5" r="2.6" />
-            </svg>
-          )}
-        </div>
-      </div>
-
-      <div className="shrink-0 px-8 pt-4 text-center">
+      {/* 点这块开歌词。**点字，不是点一个「词」按钮**——
+          歌名和歌手本来就是「这首是什么」，歌词是同一件事的展开。 */}
+      <button onClick={() => void openWords()} className="shrink-0 px-8 pt-2 text-center w-full active:opacity-60">
         <div className="text-[19px] font-medium truncate" style={{ color: "var(--ink)" }}>
           {t.title}
         </div>
         <div className="text-[13px] truncate mt-0.5" style={{ color: "var(--ink-faint)" }}>
           {t.artist || (t.kind === "online" ? "在线" : "本地文件")}
+          <span className="pl-1.5" style={{ opacity: 0.75 }}>
+            {showWords ? "· 收起歌词" : "· 点这儿看歌词"}
+          </span>
         </div>
         {p.trial && (
           <div className="text-[11px] mt-1" style={{ color: "var(--ink-faint)" }}>
             只有试听片段{p.len > 0 ? ` · ${mmss(p.len)} 就断` : ""}
           </div>
         )}
-      </div>
+      </button>
 
       {/* 气泡。两边都是毛玻璃，只靠左右位置分谁说的——
           她说过两边都白色或者都毛玻璃，那就别用颜色区分。 */}
-      <div className="shrink-0 max-h-[30%] overflow-y-auto no-bar px-5 pt-3 flex flex-col gap-2">
+      <div
+        className="flex-1 min-h-0 overflow-y-auto no-bar px-5 pt-3 flex flex-col gap-2 justify-end"
+        hidden={showWords}
+      >
         {bubbles.map((b) => (
           <div
             key={b.id}
@@ -260,8 +370,10 @@ export function MusicPlayer({
         <div ref={bottom} />
       </div>
 
-      {/* 进度 + 控制 */}
-      <div className="shrink-0 px-6 pt-3">
+      {/* 进度 + 控制。
+          ⚠️ 底下这点留白不是装饰：没有它，播放键会贴着机身最下沿，
+          在真手机上正好落在 home 条上，按下去容易误触到系统手势。 */}
+      <div className="shrink-0 px-6 pt-3 pb-5">
         <input
           type="range"
           min={0}
