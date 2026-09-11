@@ -69,13 +69,38 @@ export function HomeScreen({
   /// 现在的分工是：**压在东西上 = 拖它，压在空处 = 翻页**（空处走原生滚动）。
   /// 拖的时候手滑到屏幕边上那一条，页跟着翻——这样「摁住它滑到别的屏」
   /// 是一个连续动作，不用先松手。
-  const g = useRef<{ id: string; scroll: number } | null>(null);
+  /// 压在一个东西上之后，这一次触摸会变成三件事之一：
+  /// **点开它 / 拖它 / 翻页**。三条都自己管。
+  ///
+  /// ⚠️ **触摸设备上翻页不能交给浏览器。** `touch-action` 在触摸**开始那一刻**
+  /// 就定死了：长按时元素还是「允许滚动」的状态，600ms 后再改成 none 毫无作用
+  /// ——手一动，Safari 就把这次触摸拿去滚页面并发来 `pointercancel`，
+  /// 拖拽当场死掉。所以元素一律 `touch-action: none`，翻页由下面这段自己滚。
+  /// 用鼠标测永远碰不到这条。
+  const g = useRef<{
+    id: string;
+    x: number;
+    y: number;
+    scroll: number;
+    mode: "wait" | "pan" | "drag";
+    timer: number | null;
+  } | null>(null);
 
-  /// 还没进编辑态时，按在某个东西上的那一次长按。手一动就作废（那是在翻页）。
-  const grab = useRef<{ x: number; y: number; timer: number } | null>(null);
-  const dropGrab = () => {
-    if (grab.current) window.clearTimeout(grab.current.timer);
-    grab.current = null;
+  const clearG = () => {
+    if (g.current?.timer) window.clearTimeout(g.current.timer);
+    g.current = null;
+  };
+
+  /// 出问题时的黑匣子。她那边试一次，我这边读得到。
+  const trace = (what: string) => {
+    try {
+      const k = "tether.draglog";
+      const arr = JSON.parse(localStorage.getItem(k) || "[]") as string[];
+      arr.push(`${new Date().toISOString().slice(11, 23)} ${what}`);
+      localStorage.setItem(k, JSON.stringify(arr.slice(-80)));
+    } catch {
+      /* 存不下就算了，不能因为记日志把功能搞挂 */
+    }
   };
   const press = useRef<number | null>(null);
   const flipAt = useRef(0);
@@ -136,8 +161,18 @@ export function HomeScreen({
     };
   };
 
-  const endGesture = () => {
-    g.current = null;
+  const endGesture = (why: string) => {
+    const st = g.current;
+    trace(`${why} mode=${st?.mode ?? "-"} drag=${drag ? drag.to.page + "," + drag.to.col + "," + drag.to.row : "-"}`);
+    clearG();
+    if (st?.mode === "pan") {
+      const pg = pager.current;
+      if (pg) {
+        const n = Math.round(pg.scrollLeft / Math.max(1, pg.clientWidth));
+        pg.scrollTo({ left: n * pg.clientWidth, behavior: "smooth" });
+      }
+      return;
+    }
     commit();
   };
 
@@ -295,63 +330,55 @@ export function HomeScreen({
                         gridRow: `${i.row + 1} / span ${i.h}`,
                         opacity: moving ? 0.5 : 1,
                         transition: moving ? "none" : "opacity 160ms",
-                        touchAction: edit ? "none" : undefined,
+                        // 一律 none：翻页由上面那段自己滚（见 g 的注释）
+                        touchAction: "none",
                         display: "flex",
                         alignItems: i.h === 1 ? "center" : "stretch",
                       }}
                       onPointerDown={(e) => {
-                        // ⚠️ **长按进编辑态之后，手不松就要能直接拖走。**
-                        // 原来这里是 `if (!edit) return`——长按时 edit 还是 false，
-                        // 这一下就被丢掉了；600ms 后图标开始抖，可那次按压已经作废，
-                        // 必须松手再按第二次才拖得动。而真人的动作是一气呵成的：
-                        // 长按 → 开始抖 → 手不松直接拖。症状就是「怎么都拖不起来」。
-                        //
-                        // 这也是我三轮都没查到的原因：**我每次测试都是先进编辑态、
-                        // 松手、再重新按下去拖**，恰好绕开了这条路径。
-                        if (!edit) {
-                          const el = e.currentTarget;
-                          const pid = e.pointerId;
-                          const sx = e.clientX;
-                          const sy = e.clientY;
-                          grab.current = {
-                            x: sx,
-                            y: sy,
-                            timer: window.setTimeout(() => {
-                              grab.current = null;
-                              setEdit(true);
-                              try {
-                                el.setPointerCapture(pid);
-                              } catch {
-                                /* 抓不住就算了 */
-                              }
-                              const pg = pager.current;
-                              g.current = { id: i.id, scroll: pg ? pg.scrollLeft : 0 };
-                              setDrag({ id: i.id, to: { page: i.page, col: i.col, row: i.row } });
-                            }, 600),
-                          };
-                          return;
-                        }
-                        // ⚠️ setPointerCapture 会抛（指针已抬起、或不是活跃指针时
-                        // 扔 NotFoundError）。不接住的话整个 handler 在这儿断掉，
-                        // 症状是「按住拖不动，也不报错」。
+                        const pg = pager.current;
+                        // ⚠️ 立刻捕获。**不能等长按到点再捕获**——触摸设备上
+                        // 那时候浏览器可能已经把这次触摸拿走了。
                         try {
                           e.currentTarget.setPointerCapture(e.pointerId);
                         } catch {
-                          /* 抓不住就算了，靠冒泡的 move 事件照样能跟 */
+                          /* 抓不住就算了，靠冒泡的 move 照样能跟 */
                         }
-                        const el = pager.current;
-                        g.current = { id: i.id, scroll: el ? el.scrollLeft : 0 };
-                        setDrag({ id: i.id, to: { page: i.page, col: i.col, row: i.row } });
+                        g.current = {
+                          id: i.id,
+                          x: e.clientX,
+                          y: e.clientY,
+                          scroll: pg ? pg.scrollLeft : 0,
+                          mode: "wait",
+                          timer: window.setTimeout(() => {
+                            if (!g.current || g.current.mode !== "wait") return;
+                            g.current.mode = "drag";
+                            if (!edit) setEdit(true);
+                            setDrag({ id: i.id, to: { page: i.page, col: i.col, row: i.row } });
+                            trace(`grab ${i.id}`);
+                          }, edit ? 0 : 600),
+                        };
+                        trace(`down ${i.id} edit=${edit} type=${e.pointerType}`);
                       }}
                       onPointerMove={(e) => {
-                        // 长按还没到点就动了 = 在翻页，不是要拖
-                        if (grab.current) {
-                          const gr = grab.current;
-                          if (Math.abs(e.clientX - gr.x) > 10 || Math.abs(e.clientY - gr.y) > 10) {
-                            dropGrab();
-                          }
+                        const st = g.current;
+                        if (!st) return;
+                        const dx = e.clientX - st.x;
+
+                        // 还没到点就动了 = 在翻页
+                        if (st.mode === "wait") {
+                          if (Math.abs(dx) < 10 && Math.abs(e.clientY - st.y) < 10) return;
+                          if (st.timer) window.clearTimeout(st.timer);
+                          st.timer = null;
+                          st.mode = "pan";
+                          trace("pan");
                         }
-                        if (!edit || !g.current || !drag) return;
+                        if (st.mode === "pan") {
+                          const pg = pager.current;
+                          if (pg) pg.scrollLeft = st.scroll - dx;
+                          return;
+                        }
+                        if (!drag) return;
                         // 判边界用**可视区**，不是用某一页的网格——页滚过去之后
                         // 那一页的 rect 已经不在屏幕上了
                         const box = pager.current?.getBoundingClientRect();
@@ -374,14 +401,8 @@ export function HomeScreen({
                         const c = cellAt(e.clientX, e.clientY, drag.to.page, i.w, i.h);
                         if (c) setDrag({ ...drag, to: { ...drag.to, ...c } });
                       }}
-                      onPointerUp={() => {
-                        dropGrab();
-                        endGesture();
-                      }}
-                      onPointerCancel={() => {
-                        dropGrab();
-                        endGesture();
-                      }}
+                      onPointerUp={() => endGesture("up")}
+                      onPointerCancel={() => endGesture("cancel")}
                     >
                       {isWidget ? (
                         <span className="w-full h-full relative">
