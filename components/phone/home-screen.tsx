@@ -18,6 +18,15 @@ import { APPS, dockApps, appById } from "@/lib/apps/registry";
 import type { Contact } from "@/lib/os/contacts";
 import type { Settings } from "@/lib/os/settings";
 import { PhotoPicker } from "@/components/photos/photo-picker";
+import {
+  FOLDER_PREFIX,
+  cleanName,
+  folderKey,
+  isFolder,
+  parseFolders,
+  serializeFolders,
+} from "@/lib/os/folders";
+import { FolderIcon, FolderSheet } from "./folder";
 
 type Open = (id: string, center: { x: number; y: number }) => void;
 
@@ -44,6 +53,8 @@ export function HomeScreen({
   /// 正在给哪个组件挑东西。**只有编辑态才进得来**——
   /// 平时点卡片是进 app，那是它的主要用途。
   const [config, setConfig] = useState<WidgetId | null>(null);
+  /// 点开了哪个文件夹
+  const [openFolder, setOpenFolder] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   /// 正在拖的那个，和它现在落在哪
   const [drag, setDrag] = useState<{ id: string; to: { page: number; col: number; row: number } } | null>(null);
@@ -59,8 +70,13 @@ export function HomeScreen({
   }, []);
 
   const on = list(settings.widgets) as WidgetId[];
+  const folders = parseFolders(settings.folders);
+  /// 收进文件夹的 app 不再单独出现在桌面上。**一个 app 只能在一处**——
+  /// 两处都画的话，拖走一处另一处还在，那个"删不掉的影子"很难解释。
+  const inFolder = new Set(folders.flatMap((f) => f.apps));
   const items = [
-    ...APPS.filter((a) => !a.dock).map((a) => ({ id: a.id, w: 1, h: 1 })),
+    ...APPS.filter((a) => !a.dock && !inFolder.has(a.id)).map((a) => ({ id: a.id, w: 1, h: 1 })),
+    ...folders.map((f) => ({ id: FOLDER_PREFIX + f.key, w: 1, h: 1 })),
     ...on.map((id) => {
       const def = widgetById(id);
       return { id: `w:${id}`, w: def?.w ?? 2, h: def?.h ?? 2 };
@@ -104,6 +120,19 @@ export function HomeScreen({
     const want = { ...drag.to, w: me.w, h: me.h };
     const others = placed.filter((i) => i.id !== me.id);
     const hit = occupants(others, want);
+
+    // ⚠️ **拖到文件夹上 = 放进去，拖到别的东西上 = 换位。**
+    // 两种结果各自对应一种目标，不用靠悬停时长去猜（见 lib/os/folders.ts）。
+    if (hit.length === 1 && isFolder(hit[0].id) && !isFolder(me.id) && !me.id.startsWith("w:")) {
+      const key = folderKey(hit[0].id);
+      onChange({
+        folders: serializeFolders(
+          folders.map((f) => (f.key === key ? { ...f, apps: [...f.apps, me.id] } : f)),
+        ),
+      });
+      setDrag(null);
+      return;
+    }
 
     let next: Placed[] | null = null;
     if (hit.length === 0) {
@@ -166,8 +195,11 @@ export function HomeScreen({
                 .map((i) => {
                   const moving = drag?.id === i.id;
                   const isWidget = i.id.startsWith("w:");
-                  const app = isWidget ? null : appById(i.id);
-                  if (!isWidget && !app) return null;
+                  const folder = isFolder(i.id)
+                    ? folders.find((f) => f.key === folderKey(i.id))
+                    : undefined;
+                  const app = isWidget || folder ? null : appById(i.id);
+                  if (!isWidget && !folder && !app) return null;
                   return (
                     <div
                       key={i.id}
@@ -236,6 +268,12 @@ export function HomeScreen({
                             </button>
                           )}
                         </span>
+                      ) : folder ? (
+                        <FolderIcon
+                          folder={folder}
+                          badge={folder.apps.reduce((n, id) => n + (badges[id] ?? 0), 0)}
+                          onOpen={() => !edit && setOpenFolder(folder.key)}
+                        />
                       ) : (
                         <AppIcon app={app!} onOpen={edit ? () => {} : onOpen} badge={badges[app!.id] ?? 0} />
                       )}
@@ -255,6 +293,24 @@ export function HomeScreen({
             style={{ color: "var(--ink)" }}
           >
             加组件
+          </button>
+          <button
+            onClick={() => {
+              // 空文件夹不会被存下来（serializeFolders 会滤掉），所以先塞一个
+              // app 进去：桌面上第一个没归档的。没有可放的就不建。
+              const first = APPS.find((a) => !a.dock && !inFolder.has(a.id));
+              if (!first) return;
+              onChange({
+                folders: serializeFolders([
+                  ...folders,
+                  { key: String(Date.now().toString(36)), name: "文件夹", apps: [first.id] },
+                ]),
+              });
+            }}
+            className="glass-strong flex-1 rounded-2xl py-2 text-[13px]"
+            style={{ color: "var(--ink)" }}
+          >
+            新文件夹
           </button>
           <button
             onClick={() => {
@@ -343,6 +399,32 @@ export function HomeScreen({
       <div className="flex justify-center" style={{ paddingBottom: "calc(0.5rem + var(--sab))" }}>
         <span className="w-[134px] h-[5px] rounded-full" style={{ background: "var(--ink)", opacity: 0.35 }} />
       </div>
+
+      {/* 点开的文件夹 */}
+      {openFolder && folders.some((f) => f.key === openFolder) && (
+        <FolderSheet
+          folder={folders.find((f) => f.key === openFolder)!}
+          badges={badges}
+          edit={edit}
+          onOpen={onOpen}
+          onRename={(name) =>
+            onChange({
+              folders: serializeFolders(
+                folders.map((f) => (f.key === openFolder ? { ...f, name } : f)),
+              ),
+            })
+          }
+          onTakeOut={(id) => {
+            const next = folders.map((f) =>
+              f.key === openFolder ? { ...f, apps: f.apps.filter((x) => x !== id) } : f,
+            );
+            // 掏空了就没这个文件夹了，面板也跟着关
+            if (!next.find((f) => f.key === openFolder)?.apps.length) setOpenFolder(null);
+            onChange({ folders: serializeFolders(next) });
+          }}
+          onClose={() => setOpenFolder(null)}
+        />
+      )}
 
       {/* 相册卡放哪几张 */}
       {config === "photos" && (

@@ -31,6 +31,9 @@ export type Contact = {
   chatBgAt?: number;
   /// 换主页横幅的时间戳。同上，图在 photos 表（lib/os/contact-image.ts）。
   bannerAt?: number;
+  /// 它上一次「先开口」是什么时候。**用来防重复**：同一段沉默里只开口一次，
+  /// 否则来回切会话就变成反复打招呼。
+  greetedAt?: number;
   signature: string;
   /// 进系统提示词。只写它是谁，别挂形容词——挂了模型就去演那个词。
   persona: string;

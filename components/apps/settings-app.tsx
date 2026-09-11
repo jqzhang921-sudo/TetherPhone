@@ -223,6 +223,27 @@ export function SettingsApp({
           </div>
         </div>
 
+        <label className="flex items-start gap-3 py-1 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={settings.proactive}
+            onChange={(e) => onChange({ proactive: e.target.checked })}
+            className="mt-0.5"
+            style={{ accentColor: "var(--ink)" }}
+          />
+          <span className="min-w-0">
+            <span className="block text-[14px]" style={{ color: "var(--ink)" }}>
+              让它先开口
+            </span>
+            <span className="block text-[11px] leading-relaxed mt-0.5" style={{ color: "var(--ink-faint)" }}>
+              隔了几个小时之后你再打开对话，它可以先说一句——
+              <b style={{ color: "var(--ink-dim)" }}>但只有在它确实带来了一件东西的时候</b>，
+              没有就什么都不说。不是定时推送，也不会有「在吗」。
+              开着的话，每次这样的开场会花一次模型调用。
+            </span>
+          </span>
+        </label>
+
         <button
           onClick={onOpenMe}
           className="rounded-2xl py-2.5 text-[14px]"

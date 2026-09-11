@@ -34,6 +34,8 @@ import {
 } from "@/lib/os/contacts";
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from "@/lib/os/settings";
 import { loadLetters, unreadCount } from "@/lib/letters/store";
+import { loadComments, loadPosts } from "@/lib/moments/store";
+import { loadNotes } from "@/lib/notes/store";
 import { ThemeApp } from "@/components/apps/theme-app";
 import { clearContactImage } from "@/lib/os/contact-image";
 
@@ -94,10 +96,27 @@ export function Phone() {
 
   /// 桌面上的红点。现在只有「还没拆的信」一种，但入口留成通用的
   /// ——动态、备忘录以后都要往这儿挂。
-  const refreshBadges = useCallback(async (list: Contact[]) => {
+  /// 桌面上的红点。
+  ///
+  /// ⚠️ **只数「它做的」，不数她自己写的。** 给自己发的东西点红点是荒唐的，
+  /// 而这三张表里两边的行长得一样，很容易顺手全数进去。
+  const refreshBadges = useCallback(async (list: Contact[], s: Settings) => {
     let letters = 0;
-    for (const c of list) letters += unreadCount(await loadLetters(c.id));
-    setBadges({ letters });
+    let moments = 0;
+    let notes = 0;
+    for (const c of list) {
+      letters += unreadCount(await loadLetters(c.id));
+      const [posts, comments, board] = await Promise.all([
+        loadPosts(c.id),
+        loadComments(c.id),
+        loadNotes(c.id),
+      ]);
+      moments +=
+        posts.filter((x) => x.author === "them" && x.at > s.seenMoments).length +
+        comments.filter((x) => x.author === "them" && x.at > s.seenMoments).length;
+      notes += board.filter((x) => x.author === "them" && !x.done && x.at > s.seenNotes).length;
+    }
+    setBadges({ letters, moments, notes });
   }, []);
 
   const reloadAll = useCallback(() => {
@@ -106,11 +125,18 @@ export function Phone() {
     // 第一次进来种一个空联系人，顺手把旧版存在全局设置里的名字/人设搬过来。
     void ensureSeed({ aiName: s.aiName, persona: s.persona }).then((list) => {
       setContacts(list);
-      void refreshBadges(list);
+      void refreshBadges(list, s);
     });
   }, [refreshBadges]);
 
   useEffect(reloadAll, [reloadAll]);
+
+  /// 关掉 app 时重算角标。**它在聊天里顺手贴了张便签**——那时候桌面还没看见。
+  /// 挂在"关掉"上而不是每个 app 各自通知：少一个会忘的地方。
+  useEffect(() => {
+    if (open) return;
+    void refreshBadges(contactsRef.current, settings);
+  }, [open, settings, refreshBadges]);
 
   const patchSettings = (p: Partial<Settings>) => {
     setSettings((prev) => {
@@ -222,6 +248,10 @@ export function Phone() {
   const floor = settings.wallpaperPhotoId ? (custom?.alpha ?? 0) : cssFloor;
 
   const openApp = (id: string, center: { x: number; y: number }) => {
+    // 打开就算看过。**在这儿记而不是在 app 里面记**——两个 app 各记一遍
+    // 迟早有一个忘了，而"角标不消"是那种每次看到都烦一下的毛病。
+    if (id === "moments") patchSettings({ seenMoments: Date.now() });
+    if (id === "notes") patchSettings({ seenNotes: Date.now() });
     // AppIcon 给的是视口坐标；窗口的 transform-origin 要的是设备框内坐标。
     const box = device.current?.getBoundingClientRect();
     setClosing(false);
@@ -341,7 +371,7 @@ export function Phone() {
       }}
     >
       {locked ? (
-        <LockScreen onUnlock={() => setLocked(false)} />
+        <LockScreen contacts={contacts} onUnlock={() => setLocked(false)} />
       ) : (
         <HomeScreen
           onOpen={openApp}
@@ -360,6 +390,10 @@ export function Phone() {
               settings={settings}
               onOpenProfile={showProfile}
               onAddContact={() => void addContact()}
+              onGreeted={(id) => {
+                const c = contactsRef.current.find((x) => x.id === id);
+                if (c) void upsertContact({ ...c, greetedAt: Date.now() });
+              }}
               openWith={chatWith}
             />
           ) : app.id === "diary" ? (
@@ -368,7 +402,7 @@ export function Phone() {
             <LettersApp
               contacts={contacts}
               settings={settings}
-              onUnreadChange={() => void refreshBadges(contacts)}
+              onUnreadChange={() => void refreshBadges(contacts, settings)}
             />
           ) : app.id === "music" ? (
             <MusicApp

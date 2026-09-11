@@ -48,6 +48,16 @@ export type Settings = {
   layout: string;
   /// 相册卡片上放哪几张。逗号分隔的照片 id，空 = 用最近收进相册的那几张。
   photoWidget: string;
+  /// 桌面文件夹：`key|名字|app1,app2` 用分号隔开。见 lib/os/folders.ts。
+  folders: string;
+  /// 上次看动态 / 便签是什么时候。**角标 = 这个时刻之后它写的有几条。**
+  /// 比给每一行加「我看过没」省事得多，也不用迁移三张表；
+  /// 代价是多个联系人共用一个时刻——桌面上的角标本来就是合并计数。
+  seenMoments: number;
+  seenNotes: number;
+  /// 它能不能先开口。**出口不是排班表**——不做后台定时推送，
+  /// 只在她打开一段隔了很久的对话时给它一次机会，而且它得真有东西可带。
+  proactive: boolean;
   /// 图标顺序，逗号分隔的 app id。**registry 里新增的会自动补在后面**——
   /// 加了新 app 不该因为老用户的顺序里没有它就消失。
   appOrder: string;
@@ -80,6 +90,10 @@ export const DEFAULT_SETTINGS: Settings = {
   widgets: "clock",
   layout: "",
   photoWidget: "",
+  folders: "",
+  seenMoments: 0,
+  seenNotes: 0,
+  proactive: true,
   appOrder: "",
 };
 

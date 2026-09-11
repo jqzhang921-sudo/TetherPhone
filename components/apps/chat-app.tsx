@@ -122,6 +122,39 @@ function nowLine(lastAt: number | null): string {
   return bits.join("");
 }
 
+/// 它先开口时，additional 到系统提示词末尾的一段。
+///
+/// ⚠️ **红线：带来一件东西，不索取。** 这是 Cleo 早就定过的——
+/// 「在吗」「想你了」「最近怎么样」都是索取：它们要的是她的回应，
+/// 而她打开手机的那一刻并不欠任何人一个回应。
+///
+/// ⚠️ **必须给它一条「什么都不说」的出口，而且要好走。**
+/// 没有出口的话，模型面对「现在该说点什么」永远会说点什么——
+/// 于是每次开 app 都被打招呼，主动就退化成了骚扰。
+/// 模型又不擅长输出空字符串，所以约定一个记号：只回一个减号。
+const OPEN_RULE = [
+  "",
+  "——",
+  "她刚打开这个对话，隔了一段时间没说话了。你**可以**先开口，但只在一种情况下：",
+  "你确实带来了一件东西。一封写好的信、一首想放给她的歌、一件你查到并且跟她有关的事、",
+  "一页你写了想给她看的日记。带来的东西要具体到能指认，不是一种心情。",
+  "",
+  "**「在吗」「想你了」「最近怎么样」这些不算。** 它们要的是她的回应——",
+  "而她刚打开手机，不欠任何人一个回应。",
+  "",
+  "没有要带来的，就**只回一个减号 `-`**，别的一个字都不要写。沉默不是失败，是常态。",
+].join("\n");
+
+/// 「我没有要说的」。宽一点：不同模型会回 `-`、`—`、`- `、`。`。
+const PASS = /^[-—–.。\s]{0,3}$/;
+
+/// 隔多久才给它一次先开口的机会。
+///
+/// ⚠️ **门槛是「隔了多久」，不是「到点了」。** 定时推送是她明确否掉的那种
+/// ——出口不是排班表。挂在「她打开一段久没说话的对话」上，
+/// 主动才是接着上一次，而不是凭空插进她的一天。
+const GREET_GAP = 3 * 60 * 60_000;
+
 const clock = (at: number) => {
   const d = new Date(at);
   return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -165,6 +198,7 @@ export function ChatApp({
   settings,
   onOpenProfile,
   onAddContact,
+  onGreeted,
   openWith,
 }: {
   contacts: Contact[];
@@ -172,6 +206,8 @@ export function ChatApp({
   onOpenProfile: (c: Contact) => void;
   /// 通讯录并进来了：**列表就是通讯录**，所以新建也归这儿。
   onAddContact: () => void;
+  /// 记下它「先开口」过了，防同一段沉默里反复打招呼
+  onGreeted: (id: string) => void;
   /// 从主页「发消息」进来时，直接开这个人的会话，别把人扔回列表让他再点一次。
   openWith?: string | null;
 }) {
@@ -263,9 +299,32 @@ export function ChatApp({
     }
   };
 
-  const send = useCallback(async () => {
-    const body = text.trim();
-    if ((!body && !pending.length) || busy || !contact) return;
+  /// `first = true` 时它先开口：不造用户消息，只让它看着已有的对话说一句。
+  /// 她打开一段久没说话的对话时，给它一次先开口的机会。
+  ///
+  /// ⚠️ **不是定时器。** 挂在「打开」上，所以它开口永远是接着上一次，
+  /// 而不是凭空插进她的一天。真正决定说不说的是模型自己——
+  /// 没东西可带就回一个减号，那条消息不会落库（见 OPEN_RULE / PASS）。
+  const greeting = useRef(false);
+  useEffect(() => {
+    if (!settings.proactive || !contact || busy || greeting.current) return;
+    if (!settings.apiKey.trim()) return;
+    const last = msgs.at(-1);
+    if (!last) return;
+    if (Date.now() - last.at < GREET_GAP) return;
+    // 同一段沉默里只开口一次
+    if ((contact.greetedAt ?? 0) >= last.at) return;
+    greeting.current = true;
+    onGreeted(contact.id);
+    void sendRef.current?.(true).finally(() => {
+      greeting.current = false;
+    });
+  }, [contact, msgs, busy, settings.proactive, settings.apiKey, onGreeted]);
+
+  const send = useCallback(async (first = false) => {
+    const body = first ? "" : text.trim();
+    if (busy || !contact) return;
+    if (!first && !body && !pending.length) return;
     if (!settings.apiKey) {
       setErr("还没填 API key。回桌面打开「设置」。");
       return;
@@ -273,7 +332,7 @@ export function ChatApp({
     setErr(null);
 
     // 图先落库拿到 id，消息只存 id
-    const shots: Photo[] = pending.map((p) => ({
+    const shots: Photo[] = first ? [] : pending.map((p) => ({
       ...blankPhoto(contact.id, "me"),
       blob: p.blob,
       w: p.w,
@@ -289,11 +348,13 @@ export function ChatApp({
       photoIds: shots.length ? shots.map((s) => s.id) : undefined,
       at: Date.now(),
     };
-    const history = [...msgs, mine];
-    setMsgs(history);
-    void saveMsgs([mine]);
-    setPending([]);
-    setText("");
+    const history = first ? msgs : [...msgs, mine];
+    if (!first) {
+      setMsgs(history);
+      void saveMsgs([mine]);
+      setPending([]);
+      setText("");
+    }
     setBusy(true);
     if (shots.length) void refreshPhotos(contact.id);
 
@@ -328,7 +389,7 @@ export function ChatApp({
         notes,
         // 「上一次说话」= 这次她开口之前的最后一条，不是刚发出去这条
         msgs.at(-1)?.at ?? null,
-      );
+      ) + (first ? OPEN_RULE : "");
       const replyId = newId();
       let visible = "";
 
@@ -453,7 +514,11 @@ export function ChatApp({
         }
       }
 
-      if (visible.trim()) {
+      // ⚠️ **它说「没有」的时候要真的什么都不留下。**
+      // 这是整条规矩的落点：先开口的前提是带来了一件东西，
+      // 没带来就该沉默——留一句「在吗」正是她当初否掉的那种打扰。
+      const pass = first && PASS.test(visible.trim());
+      if (visible.trim() && !pass) {
         await saveMsgs([
           { id: replyId, contactId: contact.id, role: "assistant", content: visible, at: Date.now() },
         ]);
@@ -466,7 +531,12 @@ export function ChatApp({
     } finally {
       setBusy(false);
     }
-  }, [text, pending, busy, contact, msgs, settings, diary, memory, notes, photos, refreshPhotos]);
+  }, [text, pending, busy, contact, msgs, settings, diary, memory, notes, photos, refreshPhotos, player]);
+
+  /// ⚠️ 上面那个 effect 要用 send，但 send 定义在它后面、而且每次渲染都换新的。
+  /// 放进依赖里会让 effect 每次都重跑（= 反复开口）。用 ref 拿最新的那个。
+  const sendRef = useRef<typeof send | null>(null);
+  sendRef.current = send;
 
   // ── 会话列表 ────────────────────────────────────────────────
   if (!contact) {
