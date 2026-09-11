@@ -41,6 +41,16 @@ function resolveBase(raw: string | null): string | null {
   return v.replace(/\/+$/, "");
 }
 
+type Playlist = {
+  id: number;
+  name: string;
+  coverImgUrl?: string;
+  trackCount?: number;
+  /// 5 = 「我喜欢的音乐」
+  specialType?: number;
+  userId?: number;
+};
+
 type Song = {
   id: number;
   name: string;
@@ -97,6 +107,51 @@ export async function GET(req: Request) {
           cover: s.al?.picUrl ?? s.album?.picUrl,
           // fee=1 是 VIP 专享，fee=4 是付费专辑。**先标出来**，
           // 免得点下去才发现没声音。
+          vip: s.fee === 1 || s.fee === 4,
+        })),
+      });
+    }
+
+    if (op === "mine") {
+      // ⚠️ **uid 要现问，不能让前端传。** 前端传就等于「谁的歌单都能拉」，
+      // 而这台服务器手里握着的是**这个人自己的** cookie——
+      // 拿别人的 uid 来问，问出来的是那个人的公开歌单，看着还挺正常，
+      // 于是这个接口悄悄变成了「用我的号去扒任何人」。
+      const acc = await grab(`${base}/user/account?timestamp=${Date.now()}`);
+      const uid = acc?.profile?.userId ?? acc?.account?.id;
+      if (!uid) return Response.json({ error: "还没登录" }, { status: 401 });
+      const j = await grab(`${base}/user/playlist?uid=${uid}&limit=60&timestamp=${Date.now()}`);
+      const list: Playlist[] = j?.playlist ?? [];
+      return Response.json({
+        uid: String(uid),
+        lists: list.map((l) => ({
+          id: String(l.id),
+          name: l.name,
+          cover: l.coverImgUrl,
+          count: l.trackCount ?? 0,
+          // specialType 5 = 「我喜欢的音乐」。它是系统建的，名字跟着昵称走
+          //（「某某喜欢的音乐」），所以**靠名字认不出来**，只能看这个字段。
+          liked: l.specialType === 5,
+          // 收藏别人的歌单也在这个列表里，用创建者区分
+          mine: String(l.userId ?? "") === String(uid),
+        })),
+      });
+    }
+
+    if (op === "list") {
+      const id = p.get("id");
+      if (!id) return Response.json({ error: "没给 id" }, { status: 400 });
+      // 歌单可以很长（几千首）。一次拉 500，界面上也够翻了。
+      const j = await grab(
+        `${base}/playlist/track/all?id=${encodeURIComponent(id)}&limit=500&timestamp=${Date.now()}`,
+      );
+      const list: Song[] = j?.songs ?? [];
+      return Response.json({
+        songs: list.map((s) => ({
+          songId: String(s.id),
+          title: s.name,
+          artist: (s.ar ?? s.artists ?? []).map((a) => a.name).join(" / "),
+          cover: s.al?.picUrl ?? s.album?.picUrl,
           vip: s.fee === 1 || s.fee === 4,
         })),
       });

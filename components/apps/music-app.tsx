@@ -1,14 +1,19 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import {
+  coverUrl,
   deleteTrack,
   loadTracks,
   localTrack,
   lyric as fetchLyric,
+  musicAccount,
+  myPlaylists,
+  playlistSongs,
   saveTrack,
   search,
   PHONE,
   type Found,
+  type Playlist,
   type Track,
 } from "@/lib/music/store";
 import { mmss, usePlayer } from "@/components/phone/player";
@@ -43,6 +48,75 @@ function span(sec: number) {
   const m = Math.floor(sec / 60);
   if (m < 60) return `${m} 分钟`;
   return `${Math.floor(m / 60)} 小时 ${m % 60} 分`;
+}
+
+/// 歌单显示成什么名字。
+///
+/// ⚠️ **「我喜欢的音乐」的真名是「某某喜欢的音乐」**，跟着昵称走，
+/// 所以靠名字认不出它，只能看 specialType。在自己的手机上没必要
+/// 把自己的名字再念一遍——但**列表和点进去之后必须叫同一个名字**，
+/// 两处各写一遍就是迟早对不上（第一版就对不上了）。
+const listName = (l: Playlist) => (l.liked ? "我喜欢的音乐" : l.name);
+
+/// 一首歌一行。找歌和歌单里长得一样，**就该是同一个组件**——
+/// 抄一份的话，以后加个「已经在曲库里了」的标记只会加在其中一处。
+function SongRow({
+  song,
+  base,
+  playing,
+  onPlay,
+  onSave,
+}: {
+  song: Found;
+  base: string;
+  playing: boolean;
+  onPlay: () => void;
+  onSave?: () => void;
+}) {
+  const cover = coverUrl(base, song.cover);
+  return (
+    <div className="flex items-center gap-3 px-2 py-2">
+      <button onClick={onPlay} className="flex items-center gap-3 min-w-0 flex-1 text-left active:opacity-60">
+        <span
+          className="shrink-0 w-10 h-10 rounded-lg overflow-hidden grid place-items-center"
+          style={{ background: "color-mix(in oklab, var(--ink) 7%, transparent)" }}
+        >
+          {cover ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={cover} alt="" className="w-full h-full object-cover" />
+          ) : (
+            <span style={{ color: "var(--ink-faint)" }}>♪</span>
+          )}
+        </span>
+        <span className="min-w-0">
+          <span
+            className="block text-[14px] truncate"
+            style={{ color: playing ? "var(--ink)" : "var(--ink)" }}
+          >
+            {playing ? "▸ " : ""}
+            {song.title}
+          </span>
+          <span className="block text-[11px] truncate" style={{ color: "var(--ink-faint)" }}>
+            {song.artist}
+          </span>
+        </span>
+      </button>
+      {song.vip && (
+        <span
+          className="shrink-0 text-[10px] px-1.5 py-0.5 rounded"
+          style={{ background: "oklch(0.75 0.12 70 / 0.25)", color: "var(--ink-dim)" }}
+        >
+          要会员
+        </span>
+      )}
+      {onSave && (
+        <button onClick={onSave} className="shrink-0 text-[16px] px-1 leading-none"
+          style={{ color: "var(--ink-faint)" }} aria-label="收进曲库">
+          +
+        </button>
+      )}
+    </div>
+  );
 }
 
 /// 一张唱片。**不用 emoji**——样子由系统定，iPhone / 安卓 / Windows 三个样，
@@ -229,7 +303,7 @@ export function MusicApp({
   const p = usePlayer();
   const me = useMe(settings);
   const [tracks, setTracks] = useState<Track[]>([]);
-  const [tab, setTab] = useState<"lib" | "find">("lib");
+  const [tab, setTab] = useState<"mine" | "lib" | "find">("lib");
   const [q, setQ] = useState("");
   const [found, setFound] = useState<Found[]>([]);
   const [busy, setBusy] = useState(false);
@@ -239,6 +313,11 @@ export function MusicApp({
   const [full, setFull] = useState(false);
   /// 「怎么接网易云」那一层
   const [hookup, setHookup] = useState(false);
+  /// 登录之后：自己的歌单，和点开的那一个
+  const [who, setWho] = useState<{ loggedIn: boolean; name?: string } | null>(null);
+  const [lists, setLists] = useState<Playlist[] | null>(null);
+  const [inList, setInList] = useState<{ list: Playlist; songs: Found[] } | null>(null);
+  const [listErr, setListErr] = useState<string | null>(null);
 
   const together = contacts.find((c) => c.id === settings.togetherWith) ?? null;
 
@@ -248,6 +327,61 @@ export function MusicApp({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  /// 登录状态 → 歌单。
+  ///
+  /// ⚠️ **登录了就默认落在「我的」那一页。** 她的原话是「一打开又是白屏」——
+  /// 曲库只装本地文件和手动收过的，登录之后它照样是空的，
+  /// 而这时候人想看的显然是自己那几个歌单。
+  useEffect(() => {
+    if (!base) {
+      setWho(null);
+      setLists(null);
+      return;
+    }
+    let alive = true;
+    void (async () => {
+      const w = await musicAccount(base);
+      if (!alive) return;
+      setWho(w);
+      if (!w.loggedIn) return;
+      setTab((t) => (t === "lib" ? "mine" : t));
+      try {
+        const ls = await myPlaylists(base);
+        if (alive) setLists(ls);
+      } catch (e) {
+        if (alive) setListErr(e instanceof Error ? e.message : String(e));
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [base]);
+
+  const openList = async (l: Playlist) => {
+    setListErr(null);
+    setInList({ list: l, songs: [] });
+    try {
+      const songs = await playlistSongs(base, l.id);
+      setInList((cur) => (cur && cur.list.id === l.id ? { list: l, songs } : cur));
+    } catch (e) {
+      setListErr(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  /// 歌单里的歌**不落库**：点了就放，整张歌单当播放队列。
+  /// 存下来的只有她自己按 + 收进曲库的那些——否则曲库会被几千首灌满，
+  /// 「曲库」就不再是她挑过的东西了。
+  const asTrack = (f: Found): Track => ({
+    id: `net-${f.songId}`,
+    contactId: PHONE,
+    kind: "online",
+    title: f.title,
+    artist: f.artist,
+    songId: f.songId,
+    cover: f.cover,
+    at: Date.now(),
+  });
 
   const add = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -409,7 +543,12 @@ export function MusicApp({
       )}
 
       <div className="shrink-0 flex gap-2 px-4 pb-2">
-        {(["lib", "find"] as const).map((t) => (
+        {/* 没登录就不摆「我的」——那一格点进去只能说「你还没登录」，
+            等于用一个标签页来放一句错误提示。 */}
+        {(who?.loggedIn
+          ? (["mine", "lib", "find"] as const)
+          : (["lib", "find"] as const)
+        ).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -421,12 +560,93 @@ export function MusicApp({
               color: tab === t ? "var(--ink)" : "var(--ink-faint)",
             }}
           >
-            {t === "lib" ? "曲库" : "找歌"}
+            {t === "mine" ? "我的" : t === "lib" ? "曲库" : "找歌"}
           </button>
         ))}
       </div>
 
-      {tab === "lib" ? (
+      {tab === "mine" ? (
+        <div className="flex-1 min-h-0 overflow-y-auto no-bar px-3 pb-3">
+          {inList ? (
+            <>
+              <div className="flex items-center gap-2 py-2 px-1">
+                <button
+                  onClick={() => setInList(null)}
+                  className="text-[13px] active:opacity-50"
+                  style={{ color: "var(--ink-dim)" }}
+                >
+                  ‹ 歌单
+                </button>
+                <span className="text-[13px] truncate" style={{ color: "var(--ink)" }}>
+                  {listName(inList.list)}
+                </span>
+              </div>
+              {inList.songs.length === 0 && !listErr && (
+                <p className="text-center text-[12px] pt-8" style={{ color: "var(--ink-faint)" }}>
+                  在拿…
+                </p>
+              )}
+              {inList.songs.map((f) => (
+                <SongRow
+                  key={f.songId}
+                  song={f}
+                  base={base}
+                  playing={p.track?.songId === f.songId}
+                  onPlay={() => p.play(asTrack(f), inList.songs.map(asTrack))}
+                  onSave={async () => {
+                    await saveTrack(asTrack(f));
+                    await refresh();
+                  }}
+                />
+              ))}
+            </>
+          ) : lists === null ? (
+            <p className="text-center text-[12px] pt-10" style={{ color: "var(--ink-faint)" }}>
+              在拿你的歌单…
+            </p>
+          ) : lists.length === 0 ? (
+            <p className="text-center text-[12px] pt-10" style={{ color: "var(--ink-faint)" }}>
+              这个号下面没有歌单。
+            </p>
+          ) : (
+            lists.map((l) => {
+              const cover = coverUrl(base, l.cover);
+              return (
+                <button
+                  key={l.id}
+                  onClick={() => void openList(l)}
+                  className="w-full flex items-center gap-3 px-2 py-2 text-left active:opacity-60"
+                >
+                  <span
+                    className="shrink-0 w-12 h-12 rounded-xl overflow-hidden grid place-items-center"
+                    style={{ background: "color-mix(in oklab, var(--ink) 7%, transparent)" }}
+                  >
+                    {cover ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={cover} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <span style={{ color: "var(--ink-faint)" }}>♪</span>
+                    )}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[14px] truncate" style={{ color: "var(--ink)" }}>
+                      {listName(l)}
+                    </span>
+                    <span className="block text-[11px]" style={{ color: "var(--ink-faint)" }}>
+                      {l.count} 首{l.mine ? "" : " · 收藏的"}
+                    </span>
+                  </span>
+                </button>
+              );
+            })
+          )}
+          {listErr && (
+            <p className="text-center text-[11px] pt-4" style={{ color: "oklch(0.65 0.19 25)" }}>
+              {listErr}
+            </p>
+          )}
+        </div>
+      ) : tab === "lib" ? (
         <>
           <div className="flex-1 min-h-0 overflow-y-auto no-bar px-3 pb-3">
             {tracks.length === 0 ? (
@@ -542,29 +762,13 @@ export function MusicApp({
               </div>
             )}
             {found.map((f) => (
-              <button
+              <SongRow
                 key={f.songId}
-                onClick={() => void addOnline(f, true)}
-                className="w-full flex items-center gap-3 px-2 py-2.5 text-left active:opacity-60"
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[14px] truncate" style={{ color: "var(--ink)" }}>
-                    {f.title}
-                  </span>
-                  <span className="block text-[11px] truncate" style={{ color: "var(--ink-faint)" }}>
-                    {f.artist}
-                  </span>
-                </span>
-                {/* 拿不到完整音源的先标出来，别等点下去才发现没声音 */}
-                {f.vip && (
-                  <span
-                    className="shrink-0 text-[10px] px-1.5 py-0.5 rounded"
-                    style={{ background: "oklch(0.75 0.12 70 / 0.25)", color: "var(--ink-dim)" }}
-                  >
-                    要会员
-                  </span>
-                )}
-              </button>
+                song={f}
+                base={base}
+                playing={p.track?.songId === f.songId}
+                onPlay={() => void addOnline(f, true)}
+              />
             ))}
           </div>
         </>

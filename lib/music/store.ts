@@ -66,6 +66,49 @@ export async function search(base: string, q: string): Promise<Found[]> {
   return j.songs as Found[];
 }
 
+
+export type Playlist = {
+  id: string;
+  name: string;
+  cover?: string;
+  count: number;
+  /// 「我喜欢的音乐」。它排在最前面
+  liked: boolean;
+  /// 自己建的（false = 收藏的别人的）
+  mine: boolean;
+};
+
+/// 登录之后自己的歌单。没登录返回空——**不抛错**：
+/// 没登录不是出了问题，是还没到那一步，界面要说的话也完全不同。
+export async function myPlaylists(base: string): Promise<Playlist[]> {
+  const r = await fetch(`/api/music?op=mine&base=${encodeURIComponent(base)}`);
+  if (r.status === 401) return [];
+  const j = await r.json();
+  if (!r.ok) throw new Error(j?.error ?? `HTTP ${r.status}`);
+  return j.lists as Playlist[];
+}
+
+/// 一个歌单里的歌。
+export async function playlistSongs(base: string, id: string): Promise<Found[]> {
+  const r = await fetch(
+    `/api/music?op=list&base=${encodeURIComponent(base)}&id=${encodeURIComponent(id)}`,
+  );
+  const j = await r.json();
+  if (!r.ok) throw new Error(j?.error ?? `HTTP ${r.status}`);
+  return j.songs as Found[];
+}
+
+/// 登没登录、是谁。音乐 app 要靠它决定给你看什么。
+export async function musicAccount(base: string): Promise<{ loggedIn: boolean; name?: string }> {
+  try {
+    const r = await fetch(`/api/music/login?op=status&base=${encodeURIComponent(base)}`);
+    if (!r.ok) return { loggedIn: false };
+    return (await r.json()) as { loggedIn: boolean; name?: string };
+  } catch {
+    return { loggedIn: false };
+  }
+}
+
 /// 取播放地址。
 ///
 /// ⚠️ **给播放器的是本站的转发地址，不是 CDN 的原始地址。**
