@@ -271,11 +271,24 @@ export function SettingsApp({
         </p>
       </Group>
 
-      {settings.musicApiBase.trim() && (
-        <Group title="音乐账号">
+      {/* ⚠️ **这一组以前是「音源地址填了才显示」，那是藏错了地方。**
+          找登录入口的人，恰恰就是还没填音源地址的人——
+          于是他在设置里从头翻到尾，看到的是「没有登录这回事」，
+          而不是「登录要先干另一件事」。
+          没填的时候照样把标题摆在这儿，只是把话说清楚。 */}
+      <Group title="音乐账号">
+        {settings.musicApiBase.trim() ? (
           <MusicLogin base={settings.musicApiBase.trim()} />
-        </Group>
-      )}
+        ) : (
+          <p className="text-[11.5px] leading-relaxed" style={{ color: "var(--ink-faint)" }}>
+            扫码和手机号登录都在这儿，
+            <b style={{ color: "var(--ink-dim)" }}>但要先填上面那个音源地址</b>。
+            <br />
+            验证码不是这个 App 发的——是上面那台音源服务替你去跟网易云要的。
+            地址空着，短信没人发得出去，所以这儿先不摆输入框，免得填了半天没反应。
+          </p>
+        )}
+      </Group>
 
 
       <Group title="备份">

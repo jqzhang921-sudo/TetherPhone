@@ -184,9 +184,9 @@ function Hookup({ onClose, onSettings }: { onClose: () => void; onSettings: () =
             <code> http://127.0.0.1:3300</code>。它不在这个 App 里，得单独跑着。
           </Step>
           <Step n={2} title="把地址填进 设置 → 音乐">
-            填完之后，设置里才会多出一组「音乐账号」——
-            <b style={{ color: "var(--ink-dim)" }}>填之前它是不显示的</b>，
-            所以你一开始找不到登录在哪儿。
+            就在「音源地址」那一栏。填完，它下面那组
+            <b style={{ color: "var(--ink-dim)" }}>「音乐账号」</b>
+            就能用了。
           </Step>
           <Step n={3} title="在那儿扫码登录">
             用手机上的网易云 App 扫屏幕上这个码。手边只有这一台手机的话走
