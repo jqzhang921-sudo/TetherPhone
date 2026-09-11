@@ -22,6 +22,7 @@ import { displayName, type Contact } from "@/lib/os/contacts";
 import { newId } from "@/lib/id";
 import type { Settings } from "@/lib/os/settings";
 import { Avatar } from "@/components/phone/avatar";
+import { TogetherSheet } from "./together-sheet";
 import { faceOf, useMe } from "@/lib/os/avatar";
 
 function Bars({ on }: { on: boolean }) {
@@ -111,7 +112,7 @@ function SongRow({
       )}
       {onSave && (
         <button onClick={onSave} className="shrink-0 text-[16px] px-1 leading-none"
-          style={{ color: "var(--ink-faint)" }} aria-label="收进曲库">
+          style={{ color: "var(--ink-faint)" }} aria-label="加入待播清单">
           +
         </button>
       )}
@@ -313,6 +314,8 @@ export function MusicApp({
   const [full, setFull] = useState(false);
   /// 「怎么接网易云」那一层
   const [hookup, setHookup] = useState(false);
+  /// 「一起听」那一层
+  const [inviting, setInviting] = useState(false);
   /// 登录之后：自己的歌单，和点开的那一个
   const [who, setWho] = useState<{ loggedIn: boolean; name?: string } | null>(null);
   const [lists, setLists] = useState<Playlist[] | null>(null);
@@ -515,29 +518,23 @@ export function MusicApp({
           唱片转不转不重要，「有人和你在同一首歌里」才是这件事本身。 */}
       {contacts.length > 0 && (
         <div className="shrink-0 px-4 pb-2">
-          <div className="flex items-center gap-2">
+          {/* ⚠️ **这一行整体是「一起听」的入口。**
+              原来是「每个头像点一下就切换」——那不是邀请，是个开关：
+              它没有说不的机会。现在点进去是挑人 + 发邀请，它可以不答应。 */}
+          <button
+            onClick={() => setInviting(true)}
+            className="flex items-center gap-2 active:opacity-60"
+          >
             <span className="flex items-center -space-x-2">
               <Avatar face={me} size={28} ring />
-              {contacts.map((c) => {
-                const on = c.id === settings.togetherWith;
-                return (
-                  <button
-                    key={c.id}
-                    onClick={() => onChange({ togetherWith: on ? "" : c.id })}
-                    className="rounded-full transition-opacity"
-                    style={{ opacity: on ? 1 : 0.35 }}
-                  >
-                    <Avatar face={faceOf(c)} size={28} ring />
-                  </button>
-                );
-              })}
+              {together && <Avatar face={faceOf(together)} size={28} ring />}
             </span>
             <span className="text-[11px]" style={{ color: "var(--ink-faint)" }}>
               {together
                 ? `和${displayName(together)}一起听了 ${span(together.together ?? 0)}`
-                : "自己听 · 点头像叫上它"}
+                : "一起听 · 叫上它"}
             </span>
-          </div>
+          </button>
 
         </div>
       )}
@@ -593,10 +590,11 @@ export function MusicApp({
                   base={base}
                   playing={p.track?.songId === f.songId}
                   onPlay={() => p.play(asTrack(f), inList.songs.map(asTrack))}
-                  onSave={async () => {
-                    await saveTrack(asTrack(f));
-                    await refresh();
-                  }}
+                  // ⚠️ **+ 是「加进待播清单」，不是「收进曲库」。**
+                  // 有了待播清单之后，三个「一列歌」就得各自说清是什么：
+                  // 网易云歌单是那边的、曲库是她存下来的、待播清单是现在排着要放的。
+                  // 一个加号同时可能是三件事里的任何一件，那它就什么都不是。
+                  onSave={() => p.enqueue(asTrack(f))}
                 />
               ))}
             </>
@@ -780,6 +778,19 @@ export function MusicApp({
         </p>
       )}
 
+      {inviting && (
+        <TogetherSheet
+          settings={settings}
+          contacts={contacts}
+          track={p.track}
+          onDone={(id) => {
+            onChange({ togetherWith: id });
+            if (!id) setInviting(false);
+          }}
+          onClose={() => setInviting(false)}
+        />
+      )}
+
       {hookup && (
         <Hookup
           onClose={() => setHookup(false)}
@@ -794,6 +805,7 @@ export function MusicApp({
         <MusicPlayer
           settings={settings}
           together={together}
+          allContacts={contacts}
           onChange={onChange}
           onClose={() => setFull(false)}
         />

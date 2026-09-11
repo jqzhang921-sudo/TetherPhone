@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { mmss, usePlayer } from "@/components/phone/player";
 import { analyze, describe } from "@/lib/music/analyze";
 import { skyOf, toneFromImage, type Tone } from "@/lib/music/tone";
-import { coverUrl, lyric as fetchLyric } from "@/lib/music/store";
+import { coverUrl, likedIds, lyric as fetchLyric, setLiked } from "@/lib/music/store";
 import { lineAt, parseLrc, plainLines, type Line } from "@/lib/music/lrc";
 import { WALLPAPERS, wallpaperById } from "@/lib/os/wallpapers";
 import { completeOnce, identity } from "@/lib/ai";
@@ -11,6 +11,7 @@ import { loadMsgs, newId, saveMsgs, type Msg } from "@/lib/chat/store";
 import { displayName, type Contact } from "@/lib/os/contacts";
 import type { Settings } from "@/lib/os/settings";
 import { Avatar } from "@/components/phone/avatar";
+import { TogetherSheet } from "./together-sheet";
 import { faceOf, useMe } from "@/lib/os/avatar";
 
 type Bubble = { id: string; who: "me" | "them"; text: string };
@@ -35,11 +36,14 @@ const span = (sec: number) => {
 export function MusicPlayer({
   settings,
   together,
+  allContacts,
   onChange,
   onClose,
 }: {
   settings: Settings;
   together: Contact | null;
+  /// 挑人邀请要用全部联系人，`together` 只是已经在一起听的那个
+  allContacts: Contact[];
   onChange: (p: Partial<Settings>) => void;
   onClose: () => void;
 }) {
@@ -59,6 +63,14 @@ export function MusicPlayer({
   const [showWords, setShowWords] = useState(false);
   const [wordsBusy, setWordsBusy] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
+
+  /// 待播清单那一层，和「一起听」那一层
+  const [queueOpen, setQueueOpen] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  /// 「我喜欢的音乐」里已经有的那些。**开页时问一次就够**，
+  /// 每换一首都去问一遍等于替她刷接口。
+  const [likes, setLikes] = useState<Set<string>>(new Set());
+  const [likeErr, setLikeErr] = useState<string | null>(null);
 
   const base = settings.musicApiBase.trim();
   const t = p.track;
@@ -171,6 +183,41 @@ export function MusicPlayer({
   }, [input, busy, together, t, bubbles, settings]);
 
   if (!t) return null;
+
+  useEffect(() => {
+    if (!base) return;
+    let alive = true;
+    void likedIds(base).then((s) => alive && setLikes(s));
+    return () => {
+      alive = false;
+    };
+  }, [base]);
+
+  const liked = !!t?.songId && likes.has(t.songId);
+  const toggleLike = async () => {
+    if (!t?.songId || !base) return;
+    const want = !liked;
+    // ⚠️ **先改样子再发请求，但失败要改回来。** 这颗心是「已经收进
+    // 我喜欢的音乐了」的承诺；发失败了还红着，就是骗她。
+    setLikes((s) => {
+      const n = new Set(s);
+      if (want) n.add(t.songId!);
+      else n.delete(t.songId!);
+      return n;
+    });
+    setLikeErr(null);
+    try {
+      await setLiked(base, t.songId, want);
+    } catch (e) {
+      setLikes((s) => {
+        const n = new Set(s);
+        if (want) n.delete(t.songId!);
+        else n.add(t.songId!);
+        return n;
+      });
+      setLikeErr(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   /// 换一首就把歌词收起来。不收的话下一首还摊着上一首的词，
   /// 而且它一句都不会亮——看着像歌词坏了。
@@ -286,7 +333,9 @@ export function MusicPlayer({
           <div
             className="rounded-[26px] overflow-hidden grid place-items-center"
             style={{
-              width: "min(100%, 62vh)",
+              // ⚠️ 上限同时卡宽和高。原来只卡 `62vh`，在高一点的机身上
+              // 封面就顶满整屏宽，底下的东西全被挤下去——她说的「太高了」。
+              width: "min(100%, 42vh)",
               aspectRatio: "1 / 1",
               background: "color-mix(in oklab, var(--glass-tint) 30%, transparent)",
               boxShadow: "0 18px 48px oklch(0 0 0 / 0.35)",
@@ -309,7 +358,10 @@ export function MusicPlayer({
 
       {/* 头像挪到封面下面。原来在封面上头，把最大的那块往下压了一截。
           在这儿它还是「谁和你在这儿」，只是不再跟封面抢最上面那个位置。 */}
-      <div className="shrink-0 flex items-center justify-center gap-2 pt-3">
+      <button
+        onClick={() => setInviting(true)}
+        className="shrink-0 flex items-center justify-center gap-2 pt-3 active:opacity-60"
+      >
         <span className="flex items-center -space-x-2.5">
           <Avatar face={me} size={30} ring />
           {together && <Avatar face={faceOf(together)} size={30} ring />}
@@ -317,13 +369,14 @@ export function MusicPlayer({
         <span className="text-[11px]" style={{ color: "var(--ink-faint)" }}>
           {together
             ? `和${displayName(together)}一起听了 ${span(together.together ?? 0)}`
-            : "自己听"}
+            : "一起听 · 叫上它"}
         </span>
-      </div>
+      </button>
 
       {/* 点这块开歌词。**点字，不是点一个「词」按钮**——
           歌名和歌手本来就是「这首是什么」，歌词是同一件事的展开。 */}
-      <button onClick={() => void openWords()} className="shrink-0 px-8 pt-2 text-center w-full active:opacity-60">
+      {/* pt 大一点：歌名整块往下来一点，和封面之间留口气 */}
+      <button onClick={() => void openWords()} className="shrink-0 px-8 pt-6 text-center w-full active:opacity-60">
         <div className="text-[19px] font-medium truncate" style={{ color: "var(--ink)" }}>
           {t.title}
         </div>
@@ -387,7 +440,22 @@ export function MusicPlayer({
           <span>{mmss(p.at)}</span>
           <span>{mmss(p.len)}</span>
         </div>
-        <div className="flex items-center justify-center gap-8 pt-2">
+        <div className="flex items-center justify-center gap-6 pt-2">
+          {/* 喜欢。**只有在线的歌才有**——本地文件没有 songId，
+              网易云那边也就无从收起。 */}
+          <button
+            onClick={() => void toggleLike()}
+            disabled={!t.songId || !base}
+            className="active:opacity-50 disabled:opacity-25"
+            aria-label={liked ? "取消喜欢" : "喜欢"}
+          >
+            <svg viewBox="0 0 24 24" width="23" height="23"
+              fill={liked ? "oklch(0.62 0.21 20)" : "none"}
+              stroke={liked ? "oklch(0.62 0.21 20)" : "var(--ink-dim)"}
+              strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 20.4 3.9 12.3a4.9 4.9 0 0 1 0-7 4.9 4.9 0 0 1 7 0l1.1 1.1 1.1-1.1a4.9 4.9 0 0 1 7 0 4.9 4.9 0 0 1 0 7z" />
+            </svg>
+          </button>
           <button onClick={p.prev} className="active:opacity-50" aria-label="上一首">
             <svg viewBox="0 0 24 24" width="26" height="26" fill="var(--ink-dim)">
               <path d="M7 6h2v12H7zM19 6v12l-9-6z" />
@@ -408,7 +476,19 @@ export function MusicPlayer({
               <path d="M15 6h2v12h-2zM5 6l9 6-9 6z" />
             </svg>
           </button>
+          {/* 待播清单 */}
+          <button onClick={() => setQueueOpen(true)} className="active:opacity-50" aria-label="待播清单">
+            <svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="var(--ink-dim)"
+              strokeWidth="1.8" strokeLinecap="round">
+              <path d="M4 7h16M4 12h16M4 17h10" />
+            </svg>
+          </button>
         </div>
+        {likeErr && (
+          <p className="text-center text-[11px] pt-1.5" style={{ color: "oklch(0.65 0.19 25)" }}>
+            {likeErr}
+          </p>
+        )}
       </div>
 
       {/* 说点什么 */}
@@ -440,6 +520,84 @@ export function MusicPlayer({
                 <path d="M12 19V5M5 12l7-7 7 7" />
               </svg>
             </button>
+          </div>
+        </div>
+      )}
+
+      {inviting && (
+        <TogetherSheet
+          settings={settings}
+          contacts={allContacts}
+          track={t}
+          onDone={(id) => {
+            onChange({ togetherWith: id });
+            if (!id) setInviting(false);
+          }}
+          onClose={() => setInviting(false)}
+        />
+      )}
+
+      {queueOpen && (
+        <div className="absolute inset-0 z-30 flex flex-col justify-end">
+          <button aria-label="关掉" onClick={() => setQueueOpen(false)} className="absolute inset-0"
+            style={{ background: "oklch(0 0 0 / 0.45)" }} />
+          <div className="glass-strong relative rounded-t-[28px] px-4 pt-4 pb-6 max-h-[70%] flex flex-col">
+            <div className="w-9 h-1 rounded-full mx-auto mb-3 shrink-0"
+              style={{ background: "var(--ink)", opacity: 0.2 }} />
+            <div className="shrink-0 px-1 pb-2">
+              <div className="text-[15px]" style={{ color: "var(--ink)" }}>
+                待播清单
+              </div>
+              {/* ⚠️ 说清它和歌单不是一回事。两个都叫「一列歌」，
+                  不写明白的话，删掉一首会被当成把歌从网易云歌单里删了。 */}
+              <div className="text-[11px] pt-0.5" style={{ color: "var(--ink-faint)" }}>
+                {p.queue.length} 首 · 这是现在排着要放的，不是你的歌单——在这儿删不动网易云那边
+              </div>
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto no-bar">
+              {p.queue.map((q, i) => {
+                const on = q.id === t.id;
+                return (
+                  <div key={q.id} className="flex items-center gap-2 px-1 py-2">
+                    <button
+                      onClick={() => p.play(q, p.queue)}
+                      className="min-w-0 flex-1 text-left active:opacity-60"
+                    >
+                      <span className="block text-[13.5px] truncate" style={{ color: "var(--ink)" }}>
+                        {on ? "▸ " : ""}
+                        {q.title}
+                      </span>
+                      <span className="block text-[11px] truncate" style={{ color: "var(--ink-faint)" }}>
+                        {q.artist || (q.kind === "online" ? "在线" : "本地文件")}
+                      </span>
+                    </button>
+                    {/* ⚠️ **上下箭头，不做拖拽排序。** 这个盒子本身在滚，
+                        拖拽要和它抢同一个手势——桌面那边为这件事查了五轮。
+                        箭头难看一点，但按下去一定是它。 */}
+                    <button onClick={() => p.moveTo(i, i - 1)} disabled={i === 0}
+                      className="px-1.5 text-[15px] disabled:opacity-20 active:opacity-50"
+                      style={{ color: "var(--ink-faint)" }} aria-label="往上挪">
+                      ↑
+                    </button>
+                    <button onClick={() => p.moveTo(i, i + 1)} disabled={i === p.queue.length - 1}
+                      className="px-1.5 text-[15px] disabled:opacity-20 active:opacity-50"
+                      style={{ color: "var(--ink-faint)" }} aria-label="往下挪">
+                      ↓
+                    </button>
+                    <button onClick={() => p.dropAt(i)}
+                      className="px-1.5 text-[13px] active:opacity-50"
+                      style={{ color: "var(--ink-faint)" }} aria-label="移出清单">
+                      ✕
+                    </button>
+                  </div>
+                );
+              })}
+              {p.queue.length === 0 && (
+                <p className="text-center text-[12px] py-8" style={{ color: "var(--ink-faint)" }}>
+                  清单是空的。
+                </p>
+              )}
+            </div>
           </div>
         </div>
       )}

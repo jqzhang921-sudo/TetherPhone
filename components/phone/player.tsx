@@ -24,7 +24,16 @@ type Ctl = {
   trial: boolean;
   /// 音源那边有没有登录态。决定试听提示该说哪句话。
   loggedIn: boolean;
+  /// 待播清单。**和歌单不是一回事**：歌单是网易云那边的，
+  /// 这个是她（或者它）现在挑出来要放的这几首。
+  queue: Track[];
   play: (t: Track, queue?: Track[]) => void;
+  /// 加到待播的末尾。已经在里面就不重复加。
+  enqueue: (t: Track) => void;
+  /// 从待播里去掉第 i 首。去掉的正好是在放的那首就顺到下一首。
+  dropAt: (i: number) => void;
+  /// 把第 from 首挪到 to 的位置。
+  moveTo: (from: number, to: number) => void;
   toggle: () => void;
   /// 停下来并且**从桌面上消失**。暂停不等于关掉——
   /// 一条永远杵在那儿的播放条，没有出口就是个 bug。
@@ -125,6 +134,20 @@ export function PlayerProvider({
     [track, queue, load, onSong],
   );
 
+  const enqueue = useCallback((t: Track) => {
+    setQueue((q) => (q.some((x) => x.id === t.id) ? q : [...q, t]));
+  }, []);
+
+  const moveTo = useCallback((from: number, to: number) => {
+    setQueue((q) => {
+      if (from === to || from < 0 || to < 0 || from >= q.length || to >= q.length) return q;
+      const next = q.slice();
+      const [it] = next.splice(from, 1);
+      next.splice(to, 0, it);
+      return next;
+    });
+  }, []);
+
   const stop = useCallback(() => {
     const el = audio.current;
     if (el) {
@@ -174,9 +197,46 @@ export function PlayerProvider({
     return () => window.clearInterval(t);
   }, [playing, onListened]);
 
+  /// ⚠️ **删掉正在放的那首，不能只从数组里抹掉。**
+  /// 抹掉之后 `step` 用 `findIndex` 找不到当前这首，上一首/下一首直接失灵，
+  /// 而歌还在响——看着像播放器卡住了。所以要先把播放位置挪走。
+  const dropAt = useCallback(
+    (i: number) => {
+      setQueue((q) => {
+        const gone = q[i];
+        const next = q.filter((_, k) => k !== i);
+        if (gone && track && gone.id === track.id) {
+          const after = next[i] ?? next[0] ?? null;
+          if (after) {
+            setTrack(after);
+            void load(after);
+          } else {
+            // 清单空了。**停下来并从桌面消失**，别留一条放不动的播放条。
+            const el = audio.current;
+            if (el) {
+              el.pause();
+              el.removeAttribute("src");
+              el.load();
+            }
+            setTrack(null);
+            setPlaying(false);
+            setAt(0);
+            setLen(0);
+          }
+        }
+        return next;
+      });
+    },
+    [track, load],
+  );
+
   const value = useMemo<Ctl>(
     () => ({
       track,
+      queue,
+      enqueue,
+      dropAt,
+      moveTo,
       playing,
       at,
       len,
@@ -192,7 +252,7 @@ export function PlayerProvider({
         if (audio.current) audio.current.currentTime = s;
       },
     }),
-    [track, playing, at, len, err, trial, loggedIn, play, step, stop],
+    [track, queue, enqueue, dropAt, moveTo, playing, at, len, err, trial, loggedIn, play, step, stop],
   );
 
   return (

@@ -88,6 +88,27 @@ export async function myPlaylists(base: string): Promise<Playlist[]> {
   return j.lists as Playlist[];
 }
 
+/// 「我喜欢的音乐」里的歌 id。用来决定那颗心是空的还是实的。
+export async function likedIds(base: string): Promise<Set<string>> {
+  try {
+    const r = await fetch(`/api/music?op=likes&base=${encodeURIComponent(base)}`);
+    if (!r.ok) return new Set();
+    const j = await r.json();
+    return new Set((j.ids ?? []) as string[]);
+  } catch {
+    return new Set();
+  }
+}
+
+/// 喜欢 / 取消喜欢。**这是在改她真的网易云账号**，所以失败要抛出来。
+export async function setLiked(base: string, songId: string, on: boolean): Promise<void> {
+  const r = await fetch(
+    `/api/music?op=like&base=${encodeURIComponent(base)}&id=${encodeURIComponent(songId)}&on=${on ? 1 : 0}`,
+  );
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error ?? `HTTP ${r.status}`);
+}
+
 /// 一个歌单里的歌。
 export async function playlistSongs(base: string, id: string): Promise<Found[]> {
   const r = await fetch(

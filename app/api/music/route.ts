@@ -138,6 +138,34 @@ export async function GET(req: Request) {
       });
     }
 
+    if (op === "likes") {
+      // 「我喜欢的音乐」里都有哪些歌。界面上那颗心要凭它决定是空的还是实的。
+      const acc = await grab(`${base}/user/account?timestamp=${Date.now()}`);
+      const uid = acc?.profile?.userId ?? acc?.account?.id;
+      if (!uid) return Response.json({ ids: [] });
+      const j = await grab(`${base}/likelist?uid=${uid}&timestamp=${Date.now()}`);
+      return Response.json({ ids: (j?.ids ?? []).map(String) });
+    }
+
+    if (op === "like") {
+      // ⚠️ **这一步是真的在改她的网易云账号**，不是本地状态。
+      // 所以失败要如实说，不能默默当成功——界面上那颗心变红了、
+      // 账号里却没有，比点了没反应更糟。
+      const id = p.get("id");
+      const on = p.get("on") !== "0";
+      if (!id) return Response.json({ error: "没给 id" }, { status: 400 });
+      const j = await grab(
+        `${base}/like?id=${encodeURIComponent(id)}&like=${on}&timestamp=${Date.now()}`,
+      );
+      if (j?.code !== 200) {
+        return Response.json(
+          { error: j?.message ?? j?.msg ?? "没改成（多半是登录过期了）" },
+          { status: 502 },
+        );
+      }
+      return Response.json({ ok: true, on });
+    }
+
     if (op === "list") {
       const id = p.get("id");
       if (!id) return Response.json({ error: "没给 id" }, { status: 400 });
