@@ -24,6 +24,7 @@ import type { Settings } from "@/lib/os/settings";
 import { ContactStrip } from "@/components/phone/contact-strip";
 import { Avatar } from "@/components/phone/avatar";
 import { faceOf, useMe } from "@/lib/os/avatar";
+import { ForwardSheet } from "./forward-sheet";
 
 function Heart({ on }: { on: boolean }) {
   return (
@@ -37,9 +38,12 @@ function Heart({ on }: { on: boolean }) {
 export function MomentsApp({
   contacts,
   settings,
+  onOpenChat,
 }: {
   contacts: Contact[];
   settings: Settings;
+  /// 转发完去那个人的聊天。动态 app 自己开不了别的 app
+  onOpenChat: (contactId: string) => void;
 }) {
   const me = useMe(settings);
   const [who, setWho] = useState(contacts[0]?.id ?? "");
@@ -52,6 +56,8 @@ export function MomentsApp({
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  /// 正在转发的那条
+  const [forwarding, setForwarding] = useState<Post | null>(null);
   const contact = contacts.find((c) => c.id === who) ?? contacts[0] ?? null;
 
   const refresh = useCallback(async (cid: string) => {
@@ -284,6 +290,13 @@ export function MomentsApp({
                 >
                   说点什么
                 </button>
+                <button
+                  onClick={() => setForwarding(p)}
+                  className="text-[12px]"
+                  style={{ color: "var(--ink-faint)" }}
+                >
+                  转发
+                </button>
                 <span className="flex-1" />
                 {p.author === "me" && (
                   <button
@@ -436,6 +449,20 @@ export function MomentsApp({
             {busy ? "它在写…" : "让它发一条"}
           </button>
         </div>
+      )}
+
+      {forwarding && contact && (
+        <ForwardSheet
+          post={forwarding}
+          feed={contact}
+          contacts={contacts}
+          meName={settings.userName.trim() || "我"}
+          onSent={(id) => {
+            setForwarding(null);
+            onOpenChat(id);
+          }}
+          onClose={() => setForwarding(null)}
+        />
       )}
     </div>
   );

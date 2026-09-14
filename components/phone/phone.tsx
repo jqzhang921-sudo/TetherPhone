@@ -467,7 +467,20 @@ export function Phone() {
               }}
             />
           ) : app.id === "moments" ? (
-            <MomentsApp contacts={contacts} settings={settings} />
+            <MomentsApp
+              contacts={contacts}
+              settings={settings}
+              onOpenChat={(id) => {
+                // 转发完直接去那个人的聊天：它要在那儿接这条。
+                // 换窗口用 replace，不能先关再开（见 openApp 的注释）。
+                setChatWith(id);
+                const box = device.current?.getBoundingClientRect();
+                const c = box
+                  ? { x: box.left + box.width / 2, y: box.top + box.height / 2 }
+                  : { x: 0, y: 0 };
+                openApp("chat", c, true);
+              }}
+            />
           ) : app.id === "notes" ? (
             <NotesApp contacts={contacts} settings={settings} />
           ) : app.id === "memory" ? (

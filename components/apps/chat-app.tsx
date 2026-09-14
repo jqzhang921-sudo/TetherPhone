@@ -1,6 +1,7 @@
 "use client";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import { loadMsgs, saveMsgs, newId, type Msg } from "@/lib/chat/store";
+import { loadMsgs, saveMsgs, newId, type Msg, type Share } from "@/lib/chat/store";
+import { get } from "@/lib/db/idb";
 import { displayName, type Contact } from "@/lib/os/contacts";
 import { dayLabel, loadDiary, type DiaryEntry } from "@/lib/diary/store";
 import {
@@ -16,6 +17,7 @@ import {
 import { TOOLS, lockedPages, runTool, toolRules } from "@/lib/tools";
 import { digest, loadMemory, type MemoryTopic } from "@/lib/memory/store";
 import { boardText, loadNotes, type Note } from "@/lib/notes/store";
+import { timeAgo } from "@/lib/moments/store";
 import { PhotoImg } from "@/components/photos/photo-img";
 import { PhotoViewer } from "@/components/photos/photo-viewer";
 import { useBlobUrl } from "@/lib/use-blob-url";
@@ -165,6 +167,21 @@ const clock = (at: number) => {
   return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
 };
 
+/// 转发来的动态，写成给模型读的一段。
+///
+/// ⚠️ **「谁发的」必须说清。** 把 A 的动态转给 B，B 要是以为那是她写的、
+/// 或者以为是自己写的，它接下来的话就全错了位。
+function shareText(s: Share): string {
+  const who =
+    s.by === "her"
+      ? "她转发了自己发的一条动态"
+      : s.by === "you"
+        ? "她把你发过的一条动态转回给你"
+        : `她转发了${s.byName}发的一条动态`;
+  const body = s.text.trim() || (s.photoIds?.length ? "（只有图，没有字）" : "");
+  return `[${who}，${timeAgo(s.at)}发的]\n${body}`;
+}
+
 /// 两条之间要不要插一条分隔，插什么。
 ///
 /// **只在真的断开时插。** 每条都写日期就成了流水账，而分隔的意义正是
@@ -262,7 +279,10 @@ export function ChatApp({
       for (const c of contacts) {
         const rows = await loadMsgs(c.id);
         const last = rows.at(-1);
-        out[c.id] = last ? (last.content.slice(0, 24) || (last.photoIds?.length ? "[图片]" : "")) : "";
+        out[c.id] = last
+          ? last.content.slice(0, 24) ||
+            (last.share ? "[转发了一条动态]" : last.photoIds?.length ? "[图片]" : "")
+          : "";
       }
       if (alive) setPreviews(out);
     })();
@@ -283,6 +303,31 @@ export function ChatApp({
       alive = false;
     };
   }, [openId, refreshPhotos]);
+
+  /// 转发来的动态里的图。
+  ///
+  /// ⚠️ **它们不在这个联系人的相册范围里**（原帖可能在另一个联系人那页上），
+  /// `loadPhotos(openId)` 拿不到，得按 id 单独取。另存一份，免得 refreshPhotos
+  /// 整张换掉时被冲走。取过的 id 记下来：原图被删了取不到的话，
+  /// 不记就会一遍遍重取，effect 自己转成死循环。
+  const [sharePhotos, setSharePhotos] = useState<Record<string, Photo>>({});
+  const triedShare = useRef(new Set<string>());
+  useEffect(() => {
+    const want = [...new Set(msgs.flatMap((m) => m.share?.photoIds ?? []))].filter(
+      (id) => !photos[id] && !triedShare.current.has(id),
+    );
+    if (!want.length) return;
+    want.forEach((id) => triedShare.current.add(id));
+    let alive = true;
+    void Promise.all(want.map((id) => get<Photo>("photos", id))).then((rows) => {
+      const found = rows.filter((r): r is Photo => !!r);
+      if (!alive || !found.length) return;
+      setSharePhotos((prev) => ({ ...prev, ...Object.fromEntries(found.map((r) => [r.id, r])) }));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [msgs, photos]);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth" });
@@ -326,10 +371,29 @@ export function ChatApp({
     });
   }, [contact, msgs, busy, settings.proactive, settings.apiKey, onGreeted]);
 
-  const send = useCallback(async (first = false) => {
-    const body = first ? "" : text.trim();
+  /// 她转发过来、还没人接的那条动态：打开聊天就接一句。
+  ///
+  /// ⚠️ **转发不是留言，是递过去一样东西。** 递过去没反应，看着就像没发到。
+  /// 这**不走 OPEN_RULE**：不是它主动开口，是回应她递过来的东西。
+  /// 每条只接一次（replied 记着），失败也不在这次打开里重试——
+  /// 不然打开一次聊天就刷出一串请求。
+  const replied = useRef<string | null>(null);
+  useEffect(() => {
+    if (!contact || busy || greeting.current) return;
+    if (!settings.apiKey.trim()) return;
+    const last = [...msgs].reverse().find((m) => m.role !== "event");
+    if (!last?.share || last.role !== "user" || last.contactId !== contact.id) return;
+    if (replied.current === last.id) return;
+    replied.current = last.id;
+    void sendRef.current?.(false, true);
+  }, [contact, msgs, busy, settings.apiKey]);
+
+  /// `reply = true`：她这边没有新消息，只让它对已经在对话里的东西接一句
+  /// （现在只有转发来的动态会这样用）。和 first 的区别是不带 OPEN_RULE。
+  const send = useCallback(async (first = false, reply = false) => {
+    const body = first || reply ? "" : text.trim();
     if (busy || !contact) return;
-    if (!first && !body && !pending.length) return;
+    if (!first && !reply && !body && !pending.length) return;
     if (!settings.apiKey) {
       setErr("还没填 API key。回桌面打开「设置」。");
       return;
@@ -337,7 +401,7 @@ export function ChatApp({
     setErr(null);
 
     // 图先落库拿到 id，消息只存 id
-    const shots: Photo[] = first ? [] : pending.map((p) => ({
+    const shots: Photo[] = first || reply ? [] : pending.map((p) => ({
       ...blankPhoto(contact.id, "me"),
       blob: p.blob,
       w: p.w,
@@ -353,8 +417,8 @@ export function ChatApp({
       photoIds: shots.length ? shots.map((s) => s.id) : undefined,
       at: Date.now(),
     };
-    const history = first ? msgs : [...msgs, mine];
-    if (!first) {
+    const history = first || reply ? msgs : [...msgs, mine];
+    if (!first && !reply) {
       setMsgs(history);
       void saveMsgs([mine]);
       setPending([]);
@@ -370,14 +434,20 @@ export function ChatApp({
         history
           .filter((m) => m.role !== "event")
           .map(async (m): Promise<ApiMsg> => {
-            const ids = m.photoIds ?? [];
-            if (!ids.length) return { role: m.role, content: m.content };
+            // 转发来的动态：先说清是谁的、哪天的，再接她自己附的话（如果有）
+            const said = m.share
+              ? [shareText(m.share), m.content.trim()].filter(Boolean).join("\n")
+              : m.content;
+            const ids = [...(m.share?.photoIds ?? []), ...(m.photoIds ?? [])];
+            if (!ids.length) return { role: m.role, content: said };
             const parts: unknown[] = [];
             // ⚠️ 没打字发图时**不要**替她编一句「分析这张图片」。
             // 那一句会让它去做图像分析，而不是像收到一张照片那样说话。
-            if (m.content.trim()) parts.push({ type: "text", text: m.content });
+            if (said.trim()) parts.push({ type: "text", text: said });
             for (const id of ids) {
-              const p = photos[id] ?? shots.find((s) => s.id === id);
+              // 转发来的图不在这个联系人的相册范围里，按 id 现取
+              const p =
+                photos[id] ?? shots.find((s) => s.id === id) ?? (await get<Photo>("photos", id));
               if (!p) continue;
               parts.push({ type: "image_url", image_url: { url: await toDataUrl(p.blob) } });
             }
@@ -766,6 +836,46 @@ export function ChatApp({
                   m.role === "user" ? "self-end items-end" : "self-start items-start"
                 }`}
               >
+                {m.share && (
+                  // 转发来的动态。**做成一张卡，不是一个气泡**——气泡是「说的话」，
+                  // 这是「递过来的东西」。混成一种样子，就分不清哪句是她说的、哪句是原帖。
+                  <div
+                    className="rounded-[16px] px-3 py-2.5 w-[232px] max-w-full"
+                    style={{
+                      background: "color-mix(in oklab, var(--glass-tint) 88%, transparent)",
+                      border: "1px solid var(--glass-edge)",
+                    }}
+                  >
+                    <div className="text-[11px] pb-1" style={{ color: "var(--ink-faint)" }}>
+                      {m.share.by === "her" ? "我的动态" : `${m.share.byName}的动态`} ·{" "}
+                      {timeAgo(m.share.at)}
+                    </div>
+                    {!!m.share.text.trim() && (
+                      <p
+                        className="text-[13.5px] leading-relaxed whitespace-pre-wrap break-words line-clamp-5"
+                        style={{ color: "var(--ink)" }}
+                      >
+                        {m.share.text}
+                      </p>
+                    )}
+                    {!!m.share.photoIds?.length && (
+                      <div className="grid grid-cols-3 gap-1 pt-1.5">
+                        {m.share.photoIds.slice(0, 3).map((id) => {
+                          const ph = photos[id] ?? sharePhotos[id];
+                          return (
+                            <button key={id} onClick={() => ph && setViewing(ph)}>
+                              <PhotoImg
+                                photo={ph}
+                                className="rounded-[8px] object-cover w-full"
+                                style={{ aspectRatio: "1 / 1" }}
+                              />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {!!m.photoIds?.length && (
                   <div className={`grid gap-1 ${m.photoIds.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
                     {m.photoIds.map((id) => (
