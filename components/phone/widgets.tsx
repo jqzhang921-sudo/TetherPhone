@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { usePlayer } from "./player";
 import { loadNotes, paperOf, type Note } from "@/lib/notes/store";
 import { loadPhotos, type Photo } from "@/lib/photos/store";
+import { loadMsgs } from "@/lib/chat/store";
 import { PhotoImg } from "@/components/photos/photo-img";
 import { textOf } from "@/lib/weather/wmo";
 import { Glyph } from "@/components/weather/glyph";
@@ -12,14 +13,16 @@ import { Avatar } from "./avatar";
 import { Edge } from "./refraction";
 import { faceOf, useMe } from "@/lib/os/avatar";
 
-export type WidgetId = "clock" | "weather" | "music" | "photos" | "notes";
+export type WidgetId = "clock" | "weather" | "music" | "days" | "photos" | "photosWide" | "notes";
 
 /// 占几格。桌面的格子是正方的，所以 2×2 就是正方形的卡。
 export const WIDGETS: { id: WidgetId; name: string; hint: string; w: number; h: number; options?: boolean }[] = [
   { id: "clock", name: "时钟", hint: "时间和日期", w: 2, h: 2 },
   { id: "weather", name: "天气", hint: "现在几度、什么天", w: 2, h: 2 },
   { id: "music", name: "一起听", hint: "两个人的头像和一起听过多少首", w: 2, h: 2 },
+  { id: "days", name: "在一起", hint: "从说第一句话那天算起，第几天", w: 2, h: 2 },
   { id: "photos", name: "相册", hint: "挑几张轮着放", w: 2, h: 2, options: true },
+  { id: "photosWide", name: "相册 · 宽", hint: "一张照片铺满整张卡，不留边", w: 4, h: 2, options: true },
   { id: "notes", name: "备忘录", hint: "板上还没做的几件事", w: 2, h: 2 },
 ];
 
@@ -228,18 +231,159 @@ function Music({ settings, contacts, onOpen }: Props) {
   );
 }
 
+/// 在一起第几天。
+///
+/// ⚠️ **从你们说第一句话那天算，不让人自己填日期。** 填出来的是一个愿望，
+/// 算出来的才是真的——这个 App 里「在一起」指的一直是真的发生过的事。
+///
+/// 按日历天数、第一天算第 1 天：昨晚 11 点说了第一句，今天就是第 2 天。
+/// 不按「满 24 小时才加一」——那样半夜聊了一句，第二天白天还显示第 1 天。
+const dayStart = (t: number) => {
+  const d = new Date(t);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+};
+// round 不是 floor：夏令时那天只有 23 或 25 个小时，除出来不是整数
+const dayNo = (first: number, now: number) =>
+  Math.round((dayStart(now) - dayStart(first)) / 86_400_000) + 1;
+
+function Days({ settings, contacts, onOpen }: Props) {
+  const me = useMe(settings);
+  const c = contacts.find((x) => x.id === settings.togetherWith) ?? contacts[0] ?? null;
+  /// undefined = 还在读；null = 一句话都还没说过
+  const [first, setFirst] = useState<number | null | undefined>(undefined);
+  /// 0 = 还没挂载。**不在渲染时直接读 Date.now()**：服务端和浏览器渲染出来的数不一样，会水合报错
+  const [now, setNow] = useState(0);
+  const cid = c?.id;
+
+  useEffect(() => {
+    if (!cid) return;
+    let alive = true;
+    void loadMsgs(cid).then((rows) => {
+      // 事件（公开日记、拍一拍那些居中的小字）不算「说了话」
+      const said = rows.filter((m) => m.role !== "event");
+      if (alive) setFirst(said.length ? Math.min(...said.map((m) => m.at)) : null);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [cid]);
+
+  // 过了零点要自己翻到下一天。一分钟看一眼，**只有日期真变了才换值**，平时不重渲染
+  useEffect(() => {
+    setNow(Date.now());
+    const t = setInterval(() => {
+      setNow((prev) => (dayStart(prev) === dayStart(Date.now()) ? prev : Date.now()));
+    }, 60_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const since = first ? new Date(first) : null;
+
+  return (
+    <Card app="chat" onOpen={onOpen} label="在一起">
+      <Inner className="flex-1 flex items-center">
+        {first === undefined || !now ? null : first === null ? (
+          <span className="text-[12px]" style={{ color: "var(--ink-dim)" }}>
+            还没说过话
+          </span>
+        ) : (
+          <span className="flex items-baseline gap-1" style={{ color: "var(--ink)" }}>
+            <span className="text-[12px]" style={{ color: "var(--ink-dim)" }}>
+              第
+            </span>
+            <span className="text-[34px] leading-none font-light tabular-nums">{dayNo(first, now)}</span>
+            <span className="text-[12px]" style={{ color: "var(--ink-dim)" }}>
+              天
+            </span>
+          </span>
+        )}
+      </Inner>
+      <Inner className="mt-1.5 shrink-0 flex items-center gap-1.5">
+        <span className="flex items-center -space-x-1.5 shrink-0">
+          <Avatar face={me} size={18} ring />
+          {c && <Avatar face={faceOf(c)} size={18} ring />}
+        </span>
+        <span className="text-[10px] truncate" style={{ color: "var(--ink-faint)" }}>
+          {since
+            ? `${since.getMonth() + 1}月${since.getDate()}日说的第一句`
+            : c
+              ? `和${displayName(c)}`
+              : ""}
+        </span>
+      </Inner>
+    </Card>
+  );
+}
+
+/// 照片卡：**不要玻璃边**。
+///
+/// 照片本身就是内容，也是底——外面再套一圈磨砂，就是相框里又镶了个相框，
+/// 照片被挤小一圈，还显得隔着一层。所以这张卡不走 Card：照片直接铺满圆角，
+/// 名字照旧挂在卡片外面，和别的组件一个节奏。
+/// 只有空着的时候才用玻璃，免得桌面上出现一个透明的洞。
+function BleedCard({
+  app,
+  onOpen,
+  label,
+  empty,
+  children,
+}: {
+  app: string;
+  onOpen: Props["onOpen"];
+  label: string;
+  empty: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="w-full h-full flex flex-col">
+      <button
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          onOpen(app, { x: r.left + r.width / 2, y: r.top + r.height / 2 });
+        }}
+        className={`${empty ? "glass" : ""} rounded-[26px] w-full flex-1 min-h-0 relative overflow-hidden active:scale-[0.97] transition-transform`}
+        style={
+          empty
+            ? undefined
+            : {
+                boxShadow: "0 8px 22px oklch(0 0 0 / 0.2)",
+                // ⚠️ Safari 在按下缩放（transform）的那一下，overflow-hidden 会暂时不按圆角裁，
+                // 照片的直角会从圆角里戳出来一下。蒙一层遮罩逼它照样按圆角裁。
+                WebkitMaskImage: "-webkit-radial-gradient(white, black)",
+              }
+        }
+      >
+        {children}
+      </button>
+      <span
+        className="block text-[11px] leading-tight truncate text-center mt-1.5"
+        style={{ color: "var(--ink)", textShadow: "0 1px 3px oklch(0 0 0 / 0.35)" }}
+      >
+        {label}
+      </span>
+    </div>
+  );
+}
+
 /// 相册卡。**一次只放一张**，多张就轮着来。
 ///
 /// 一张卡里塞四张缩略图，每张都小得看不出是什么——那不是相册是马赛克。
 /// 一次一张才看得见内容，也才像"摆在桌上的一张照片"。
-function Photos({ settings, contacts, onOpen }: Props) {
+/// 方的和宽的是同一个组件，挑的照片分开存（settings.photoWidget / photoWideWidget）。
+function PhotoFrame({
+  settings,
+  contacts,
+  onOpen,
+  pick,
+  label,
+}: Props & { pick: string; label: string }) {
   const [rows, setRows] = useState<Photo[]>([]);
   const [at, setAt] = useState(0);
 
   useEffect(() => {
     const c = contacts.find((x) => x.id === settings.togetherWith) ?? contacts[0];
     if (!c) return;
-    const picked = settings.photoWidget.split(",").map((x) => x.trim()).filter(Boolean);
+    const picked = pick.split(",").map((x) => x.trim()).filter(Boolean);
     void loadPhotos(c.id).then((all) => {
       const saved = all.filter((x) => x.saved);
       // 挑过就按挑的来，**并且按她挑的顺序**；没挑过就用最近收进来的几张
@@ -249,7 +393,7 @@ function Photos({ settings, contacts, onOpen }: Props) {
       setRows(use);
       setAt(0);
     });
-  }, [contacts, settings.togetherWith, settings.photoWidget]);
+  }, [contacts, settings.togetherWith, pick]);
 
   // 只有一张就别转。定时器空转不为难谁，但会让人以为它随时会变。
   useEffect(() => {
@@ -258,41 +402,41 @@ function Photos({ settings, contacts, onOpen }: Props) {
     return () => clearInterval(t);
   }, [rows.length]);
 
-  const cur = rows[at];
   return (
-    <Card app="photos" onOpen={onOpen} label="相册">
-      <Inner className="flex-1 min-h-0 relative overflow-hidden" style={{ padding: 0 }}>
-        {cur ? (
-          rows.map((r, i) => (
-            // 全部铺着、靠透明度交替。**换的时候两张都在**，
-            // 不然中间会闪一下底色，像卡住了。
-            <PhotoImg
+    <BleedCard app="photos" onOpen={onOpen} label={label} empty={!rows.length}>
+      {rows.length ? (
+        rows.map((r, i) => (
+          // 全部铺着、靠透明度交替。**换的时候两张都在**，
+          // 不然中间会闪一下底色，像卡住了。
+          <PhotoImg
+            key={r.id}
+            photo={r}
+            className="absolute inset-0 w-full h-full object-cover"
+            style={{ opacity: i === at ? 1 : 0, transition: "opacity 700ms ease" }}
+          />
+        ))
+      ) : (
+        <span className="h-full grid place-items-center text-[12px]" style={{ color: "var(--ink-dim)" }}>
+          相册还空着
+        </span>
+      )}
+      {rows.length > 1 && (
+        <span className="absolute bottom-2 left-0 right-0 flex justify-center gap-1">
+          {rows.map((r, i) => (
+            <span
               key={r.id}
-              photo={r}
-              className="absolute inset-0 w-full h-full object-cover"
-              style={{ opacity: i === at ? 1 : 0, transition: "opacity 700ms ease" }}
+              className="w-1 h-1 rounded-full"
+              // 没有玻璃底托着了，白点直接压在照片上——亮照片上会看不见，垫一圈暗边
+              style={{
+                background: "oklch(1 0 0)",
+                opacity: i === at ? 0.95 : 0.45,
+                boxShadow: "0 0 2px oklch(0 0 0 / 0.45)",
+              }}
             />
-          ))
-        ) : (
-          <div className="h-full grid place-items-center">
-            <span className="text-[12px]" style={{ color: "var(--ink-dim)" }}>
-              相册还空着
-            </span>
-          </div>
-        )}
-        {rows.length > 1 && (
-          <span className="absolute bottom-1.5 left-0 right-0 flex justify-center gap-1">
-            {rows.map((r, i) => (
-              <span
-                key={r.id}
-                className="w-1 h-1 rounded-full"
-                style={{ background: "oklch(1 0 0)", opacity: i === at ? 0.95 : 0.4 }}
-              />
-            ))}
-          </span>
-        )}
-      </Inner>
-    </Card>
+          ))}
+        </span>
+      )}
+    </BleedCard>
   );
 }
 
@@ -335,7 +479,10 @@ export function Widget({ id, ...rest }: { id: WidgetId } & Props) {
   if (id === "clock") return <Clock {...rest} />;
   if (id === "weather") return <Weather {...rest} />;
   if (id === "music") return <Music {...rest} />;
-  if (id === "photos") return <Photos {...rest} />;
+  if (id === "days") return <Days {...rest} />;
+  if (id === "photos") return <PhotoFrame {...rest} pick={rest.settings.photoWidget} label="相册" />;
+  if (id === "photosWide")
+    return <PhotoFrame {...rest} pick={rest.settings.photoWideWidget} label="相册 · 宽" />;
   if (id === "notes") return <Notes {...rest} />;
   return null;
 }

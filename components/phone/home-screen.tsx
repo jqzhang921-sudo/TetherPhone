@@ -4,6 +4,7 @@ import { StatusBar } from "./status-bar";
 import { AppIcon } from "./app-icon";
 import { usePlayer } from "./player";
 import { WIDGETS, Widget, widgetById, type WidgetId } from "./widgets";
+import { haptic } from "@/lib/os/haptic";
 import {
   COLS,
   ROWS,
@@ -364,6 +365,9 @@ export function HomeScreen({
                           timer: window.setTimeout(() => {
                             if (!g.current || g.current.mode !== "wait") return;
                             g.current.mode = "drag";
+                            // 拿起来的那一下震一下。⚠️ 这是在定时器里：iPhone 上不算手势，
+                            // 不会震；安卓一般还在手势的有效期内
+                            haptic("medium");
                             if (!edit) setEdit(true);
                             setDrag({ id: i.id, to: { page: i.page, col: i.col, row: i.row } });
                             trace(`grab ${i.id}`);
@@ -628,15 +632,21 @@ export function HomeScreen({
         />
       )}
 
-      {/* 相册卡放哪几张 */}
-      {config === "photos" && (
+      {/* 相册卡放哪几张。方的和宽的各挑各的 */}
+      {(config === "photos" || config === "photosWide") && (
         <PhotoPicker
           contactId={
             contacts.find((c) => c.id === settings.togetherWith)?.id ?? contacts[0]?.id ?? ""
           }
-          picked={list(settings.photoWidget)}
+          picked={list(config === "photos" ? settings.photoWidget : settings.photoWideWidget)}
           doneLabel={(n) => (n ? `放 ${n} 张上去` : "用最近的几张")}
-          onDone={(ids) => onChange({ photoWidget: ids.join(",") })}
+          onDone={(ids) =>
+            onChange(
+              config === "photos"
+                ? { photoWidget: ids.join(",") }
+                : { photoWideWidget: ids.join(",") },
+            )
+          }
           onClose={() => setConfig(null)}
         />
       )}

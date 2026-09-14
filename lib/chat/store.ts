@@ -18,6 +18,8 @@ export type Msg = {
   photoIds?: string[];
   /// 转发过来的一条动态（见 Share）。
   share?: Share;
+  /// 拍一拍（role 是 event）。her = 她拍了它；them = 它拍回来。
+  pat?: "her" | "them";
   at: number;
 };
 

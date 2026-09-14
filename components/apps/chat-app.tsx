@@ -2,6 +2,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { loadMsgs, saveMsgs, newId, type Msg, type Share } from "@/lib/chat/store";
 import { get } from "@/lib/db/idb";
+import { haptic } from "@/lib/os/haptic";
 import { displayName, type Contact } from "@/lib/os/contacts";
 import { dayLabel, loadDiary, type DiaryEntry } from "@/lib/diary/store";
 import {
@@ -154,6 +155,17 @@ const OPEN_RULE = [
 
 /// 「我没有要说的」。宽一点：不同模型会回 `-`、`—`、`- `、`。`。
 const PASS = /^[-—–.。\s]{0,3}$/;
+
+/// 她拍了拍它之后，接不接由它。
+///
+/// ⚠️ **拍一拍要给「不接」留出口，而且要比先开口那条还好走。** 拍是随手的，
+/// 每拍一下它都正经回一句，拍两下就成了在按门铃。
+const PAT_RULE = [
+  "",
+  "——",
+  "她刚拍了拍你（聊天里是一行小字，不是一句话）。",
+  "可以回一句、可以拍回去（pat_back），也可以什么都不做——那就只回一个减号 `-`，别的一个字都不要写。",
+].join("\n");
 
 /// 隔多久才给它一次先开口的机会。
 ///
@@ -385,15 +397,24 @@ export function ChatApp({
     if (!last?.share || last.role !== "user" || last.contactId !== contact.id) return;
     if (replied.current === last.id) return;
     replied.current = last.id;
-    void sendRef.current?.(false, true);
+    void sendRef.current?.(false, "share");
   }, [contact, msgs, busy, settings.apiKey]);
 
-  /// `reply = true`：她这边没有新消息，只让它对已经在对话里的东西接一句
-  /// （现在只有转发来的动态会这样用）。和 first 的区别是不带 OPEN_RULE。
-  const send = useCallback(async (first = false, reply = false) => {
+  /// 拍一拍之后「等她拍完再问它」的那个定时器。放在 send 前面：她拍完又开口说话，
+  /// 那句话本身就会得到回复，send 要能把这个定时器掐掉，别再为拍一拍另问一次。
+  const patTimer = useRef<number | null>(null);
+
+  /// `reply`：她这边没有新消息，只让它对已经在对话里的东西接一句。
+  /// "share" = 她转来的动态；"pat" = 她拍了拍它（带 PAT_RULE，允许回一个减号不接）。
+  /// 和 first 的区别是不带 OPEN_RULE。
+  const send = useCallback(async (first = false, reply: false | "share" | "pat" = false) => {
     const body = first || reply ? "" : text.trim();
     if (busy || !contact) return;
     if (!first && !reply && !body && !pending.length) return;
+    if (!first && !reply && patTimer.current) {
+      window.clearTimeout(patTimer.current);
+      patTimer.current = null;
+    }
     if (!settings.apiKey) {
       setErr("还没填 API key。回桌面打开「设置」。");
       return;
@@ -432,8 +453,12 @@ export function ChatApp({
       // 按名字猜能力是错的，会把图悄悄丢掉且查不出原因。发过去让上游说话。
       const convo: ApiMsg[] = await Promise.all(
         history
-          .filter((m) => m.role !== "event")
+          // 事件不发给模型——除了她拍了拍它：那一下是冲着它来的，它得知道。
+          // 它自己拍回去的那几行不发：它在那一轮里调过工具，而把「[你拍了拍她]」
+          // 当成它说过的话塞回去，它下次就会学着把这行字直接打出来。
+          .filter((m) => m.role !== "event" || m.pat === "her")
           .map(async (m): Promise<ApiMsg> => {
+            if (m.role === "event") return { role: "user", content: "[她拍了拍你]" };
             // 转发来的动态：先说清是谁的、哪天的，再接她自己附的话（如果有）
             const said = m.share
               ? [shareText(m.share), m.content.trim()].filter(Boolean).join("\n")
@@ -485,7 +510,7 @@ export function ChatApp({
               .filter(Boolean)
               .join("\n")
           : "",
-      ) + (first ? OPEN_RULE : "");
+      ) + (first ? OPEN_RULE : reply === "pat" ? PAT_RULE : "");
       const replyId = newId();
       let visible = "";
 
@@ -627,6 +652,20 @@ export function ChatApp({
                     : `排进清单了：《${pick.title}》- ${pick.artist}。等这首放完就是它。`;
                 }
               : undefined,
+            // 拍回去：只是一行小字。写进库就行——这一轮回复结束时会整段重读，自然看得到
+            patBack: async () => {
+              await saveMsgs([
+                {
+                  id: newId(),
+                  contactId: contact.id,
+                  role: "event",
+                  content: `${displayName(contact)}拍了拍你`,
+                  pat: "them",
+                  at: Date.now(),
+                },
+              ]);
+              return "拍回去了。";
+            },
             likeSong: settings.musicApiBase.trim()
               ? async () => {
                   const t = player.track;
@@ -665,7 +704,8 @@ export function ChatApp({
       // ⚠️ **它说「没有」的时候要真的什么都不留下。**
       // 这是整条规矩的落点：先开口的前提是带来了一件东西，
       // 没带来就该沉默——留一句「在吗」正是她当初否掉的那种打扰。
-      const pass = first && PASS.test(visible.trim());
+      // 拍一拍也一样：它回个减号就是「不接」，什么都不留
+      const pass = (first || reply === "pat") && PASS.test(visible.trim());
       if (visible.trim() && !pass) {
         await saveMsgs([
           { id: replyId, contactId: contact.id, role: "assistant", content: visible, at: Date.now() },
@@ -685,6 +725,61 @@ export function ChatApp({
   /// 放进依赖里会让 effect 每次都重跑（= 反复开口）。用 ref 拿最新的那个。
   const sendRef = useRef<typeof send | null>(null);
   sendRef.current = send;
+
+  /// 拍一拍。
+  ///
+  /// ⚠️ **双击头像是拍，单击还是进主页**——单击得等一下，确认不是双击的前半下。
+  /// 等 260ms：再短人手来不及点第二下，再长点头像进主页会觉得卡。
+  /// ⚠️ **连拍好几下只让它接一次。** 每一下都记一行（和微信一样一行一行冒出来），
+  /// 但回话要等最后一下落定 1.5 秒后才问——不然拍三下就是三次模型调用、三句回话。
+  const [patKey, setPatKey] = useState(0);
+  const tapTimer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      // 换人、离开聊天：等着的单击和等着的回话都作废，别让它跑到另一段对话里去
+      if (tapTimer.current) window.clearTimeout(tapTimer.current);
+      if (patTimer.current) window.clearTimeout(patTimer.current);
+      tapTimer.current = null;
+      patTimer.current = null;
+    },
+    [contact?.id],
+  );
+
+  const pat = () => {
+    if (!contact) return;
+    // ⚠️ 震动必须在这一下点击里同步调，放到 await 后面就不算手势了
+    haptic();
+    setPatKey((k) => k + 1);
+    const ev: Msg = {
+      id: newId(),
+      contactId: contact.id,
+      role: "event",
+      content: `你拍了拍${displayName(contact)}`,
+      pat: "her",
+      at: Date.now(),
+    };
+    setMsgs((ms) => [...ms, ev]);
+    void saveMsgs([ev]);
+    if (patTimer.current) window.clearTimeout(patTimer.current);
+    patTimer.current = window.setTimeout(() => {
+      patTimer.current = null;
+      if (!settings.apiKey.trim()) return;
+      void sendRef.current?.(false, "pat");
+    }, 1500);
+  };
+
+  const tapAvatar = () => {
+    if (tapTimer.current) {
+      window.clearTimeout(tapTimer.current);
+      tapTimer.current = null;
+      pat();
+      return;
+    }
+    tapTimer.current = window.setTimeout(() => {
+      tapTimer.current = null;
+      if (contact) onOpenProfile(contact);
+    }, 260);
+  };
 
   // ── 会话列表 ────────────────────────────────────────────────
   if (!contact) {
@@ -792,9 +887,18 @@ export function ChatApp({
             <path d="M15 5l-7 7 7 7" />
           </svg>
         </button>
-        {/* 点头像进主页——个性签名、号码、以后的朋友圈都在那儿 */}
-        <button onClick={() => onOpenProfile(contact)} className="flex items-center gap-2.5 active:opacity-60">
-          <Avatar face={faceOf(contact)} size={32} />
+        {/* 点头像进主页，**双击头像是拍一拍**。名字那块单击直接进主页，不用等那 260ms */}
+        <button
+          onClick={tapAvatar}
+          className="shrink-0 active:opacity-60"
+          aria-label={`${displayName(contact)}，双击拍一拍`}
+        >
+          {/* 换 key = 重新挂载 = 晃的动画再放一遍 */}
+          <span key={patKey} className={`block ${patKey ? "anim-pat" : ""}`}>
+            <Avatar face={faceOf(contact)} size={32} />
+          </span>
+        </button>
+        <button onClick={() => onOpenProfile(contact)} className="active:opacity-60">
           <span className="text-[16px] font-medium" style={{ color: "var(--ink)" }}>
             {displayName(contact)}
           </span>

@@ -5,6 +5,7 @@ import { analyze, describe } from "@/lib/music/analyze";
 import { skyOf, toneFromImage, type Tone } from "@/lib/music/tone";
 import { coverUrl } from "@/lib/music/store";
 import { lineAt } from "@/lib/music/lrc";
+import { haptic } from "@/lib/os/haptic";
 import { WALLPAPERS, wallpaperById } from "@/lib/os/wallpapers";
 import { completeOnce, identity } from "@/lib/ai";
 import { loadMsgs, newId, saveMsgs, type Msg } from "@/lib/chat/store";
@@ -210,6 +211,8 @@ export function MusicPlayer({
   const liked = !!t?.songId && p.liked(t.songId);
   const toggleLike = async () => {
     if (!t?.songId || !base) return;
+    // 在点下去的这一刻震，别等请求回来——那时候已经不算手势了
+    haptic();
     setLikeErr(null);
     try {
       await p.setLike(t.songId, !liked);

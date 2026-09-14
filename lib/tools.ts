@@ -42,6 +42,8 @@ export type ToolCtx = {
   /// 把**正在放的这首**收进她的「我喜欢的音乐」。
   /// ⚠️ 只能加不能减，见 TOOLS 里的说明。
   likeSong?: () => Promise<string>;
+  /// 拍回去。聊天页注入：它是聊天里一行居中的小字，不是一条消息
+  patBack?: () => Promise<string>;
 };
 
 export const TOOLS = [
@@ -188,6 +190,16 @@ export const TOOLS = [
   {
     type: "function",
     function: {
+      name: "pat_back",
+      description:
+        "拍一拍她。她那边聊天里会出现一行「你拍了拍她」那样的小字。没有参数。" +
+        "拍一拍是随手的一下，不是一句话——想说什么就直接说。",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "like_song",
       description:
         "把**正在放的这首**收进她的「我喜欢的音乐」。" +
@@ -323,6 +335,9 @@ export const toolRules = [
   "或者你们刚聊到的事正好被这首唱中了、她也认了。",
   "**别替她攒歌单**：你觉得好听不是收的理由。拿不准就说一句「要不要收着」，",
   "让她自己按那颗心——那颗心就在播放页左下角，她一眼看得到。",
+  "",
+  "她拍了拍你（聊天里那行小字）的时候：可以回一句、可以拍回去（pat_back）、也可以什么都不做。",
+  "**拍一拍是随手的一下，不是在叫你**——不用每次都回，更不用解释为什么拍回去。",
   "",
   "你也能自己写日记（write_diary）和写信（write_letter）。",
   "**日记是写给自己的**：想清楚一件事、记下今天，不是写一份给她看的汇报。",
@@ -585,6 +600,11 @@ export async function runTool(
     if (!kw) return "得说是哪首。";
     if (!ctx.queueSong) return "她还没配音源，我排不了歌。";
     return ctx.queueSong(kw);
+  }
+
+  if (name === "pat_back") {
+    if (!ctx.patBack) return "这里拍不了。";
+    return ctx.patBack();
   }
 
   if (name === "like_song") {

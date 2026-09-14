@@ -159,6 +159,14 @@ body {
 }
 .anim-wiggle { animation: wiggle 260ms ease-in-out infinite; }
 .anim-rise { animation: rise 320ms var(--ease-ios) both; }
+/* 拍一拍：被拍的那个头像晃一下，像被碰到了肩膀。换 key 重新挂载就能再晃一次 */
+@keyframes pat-shake {
+  0%, 100% { transform: rotate(0) }
+  20% { transform: rotate(-14deg) }
+  45% { transform: rotate(11deg) }
+  70% { transform: rotate(-6deg) }
+}
+.anim-pat { animation: pat-shake 460ms var(--ease-ios); transform-origin: 50% 90%; }
 
 /* 滚动条：手机上不该看见 */
 .no-bar { scrollbar-width: none; }

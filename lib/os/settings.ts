@@ -55,6 +55,9 @@ export type Settings = {
   layout: string;
   /// 相册卡片上放哪几张。逗号分隔的照片 id，空 = 用最近收进相册的那几张。
   photoWidget: string;
+  /// 宽的那张相册卡放哪几张。和方的分开存：两张都摆着的话，放同一组照片、
+  /// 同一个节奏轮，就是一模一样的两块。
+  photoWideWidget: string;
   /// 桌面文件夹：`key|名字|app1,app2` 用分号隔开。见 lib/os/folders.ts。
   folders: string;
   /// 上次看动态 / 便签是什么时候。**角标 = 这个时刻之后它写的有几条。**
@@ -99,6 +102,7 @@ export const DEFAULT_SETTINGS: Settings = {
   widgets: "clock",
   layout: "",
   photoWidget: "",
+  photoWideWidget: "",
   folders: "",
   seenMoments: 0,
   seenNotes: 0,
