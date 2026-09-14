@@ -123,6 +123,14 @@ async function reverse(lat: number, lon: number): Promise<string> {
   }
 }
 
+/// open-meteo 给的日出日落是**当地时间、不带时区**的 "2026-09-15T05:37"。
+///
+/// ⚠️ 直接 `new Date()` 会按**运行它的那台机器**的时区去理解——服务器、手机和那座城市
+/// 不在一个时区时，就差出几个小时。按它自己返回的 utc_offset_seconds 换成绝对时间戳，
+/// 前端再按自己的时区去显示。
+const localToEpoch = (s: string | undefined, offset: number) =>
+  s ? Date.parse(`${s}:00Z`) - offset * 1000 : undefined;
+
 export async function GET(req: Request) {
   const p = new URL(req.url).searchParams;
   let place: Place | null = null;
@@ -159,10 +167,11 @@ export async function GET(req: Request) {
     `https://api.open-meteo.com/v1/forecast?latitude=${place.lat}&longitude=${place.lon}` +
     "&current=temperature_2m,apparent_temperature,relative_humidity_2m,is_day,weather_code,wind_speed_10m" +
     "&hourly=temperature_2m,weather_code" +
-    "&daily=weather_code,temperature_2m_max,temperature_2m_min" +
+    "&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset" +
     "&forecast_days=6&timezone=auto";
 
   let raw: {
+    utc_offset_seconds: number;
     current: Record<string, number>;
     hourly: { time: string[]; temperature_2m: number[]; weather_code: number[] };
     daily: {
@@ -170,6 +179,8 @@ export async function GET(req: Request) {
       weather_code: number[];
       temperature_2m_max: number[];
       temperature_2m_min: number[];
+      sunrise?: string[];
+      sunset?: string[];
     };
   };
   try {
@@ -214,6 +225,8 @@ export async function GET(req: Request) {
       code: raw.daily.weather_code[i],
       max: Math.round(raw.daily.temperature_2m_max[i]),
       min: Math.round(raw.daily.temperature_2m_min[i]),
+      sunrise: localToEpoch(raw.daily.sunrise?.[i], raw.utc_offset_seconds ?? 0),
+      sunset: localToEpoch(raw.daily.sunset?.[i], raw.utc_offset_seconds ?? 0),
     })),
   });
 }

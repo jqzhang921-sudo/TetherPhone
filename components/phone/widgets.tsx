@@ -1,11 +1,11 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { usePlayer } from "./player";
 import { loadNotes, paperOf, type Note } from "@/lib/notes/store";
 import { loadPhotos, type Photo } from "@/lib/photos/store";
 import { loadMsgs } from "@/lib/chat/store";
 import { PhotoImg } from "@/components/photos/photo-img";
-import { textOf } from "@/lib/weather/wmo";
+import { sceneOf, skyCss, textOf, type Scene } from "@/lib/weather/wmo";
 import { Glyph } from "@/components/weather/glyph";
 import { displayName, type Contact } from "@/lib/os/contacts";
 import type { Settings } from "@/lib/os/settings";
@@ -13,12 +13,23 @@ import { Avatar } from "./avatar";
 import { Edge } from "./refraction";
 import { faceOf, useMe } from "@/lib/os/avatar";
 
-export type WidgetId = "clock" | "weather" | "music" | "days" | "photos" | "photosWide" | "notes";
+export type WidgetId =
+  | "clock"
+  | "weather"
+  | "weatherWide"
+  | "sun"
+  | "music"
+  | "days"
+  | "photos"
+  | "photosWide"
+  | "notes";
 
 /// 占几格。桌面的格子是正方的，所以 2×2 就是正方形的卡。
 export const WIDGETS: { id: WidgetId; name: string; hint: string; w: number; h: number; options?: boolean }[] = [
   { id: "clock", name: "时钟", hint: "时间和日期", w: 2, h: 2 },
-  { id: "weather", name: "天气", hint: "现在几度、什么天", w: 2, h: 2 },
+  { id: "weather", name: "天气", hint: "现在几度、什么天，画成那片天", w: 2, h: 2 },
+  { id: "weatherWide", name: "天气 · 几天", hint: "今天和往后四天", w: 4, h: 2 },
+  { id: "sun", name: "日出日落", hint: "太阳走到哪儿了", w: 4, h: 2 },
   { id: "music", name: "一起听", hint: "两个人的头像和一起听过多少首", w: 2, h: 2 },
   { id: "days", name: "在一起", hint: "从说第一句话那天算起，第几天", w: 2, h: 2 },
   { id: "photos", name: "相册", hint: "挑几张轮着放", w: 2, h: 2, options: true },
@@ -133,62 +144,380 @@ function Clock({ onOpen }: Props) {
   );
 }
 
-/// 天气缓存在模块里。桌面每次重渲染都去请求一次就太蠢了——
-/// 天气十分钟内不会变，问那么勤只是烧别人的接口。
-let wxCache: { at: number; data: unknown } | null = null;
+/// 天气。**三张卡共用一份数据**：方的、几天的、日出日落。
+///
+/// 缓存在模块里——天气十分钟内不会变，桌面每次重渲染都去问一遍只是烧别人的接口。
+/// ⚠️ **进行中的请求也要缓存。** 三张卡在同一帧挂载，只缓存结果的话，
+/// 第一个请求回来之前三张卡各自都会发一个。
+type Wx = {
+  place: string;
+  current: { temp: number; code: number; day: boolean };
+  daily: { date: string; code: number; max: number; min: number; sunrise?: number; sunset?: number }[];
+};
+let wxCache: { at: number; key: string; data: Wx } | null = null;
+let wxFlight: { key: string; p: Promise<Wx | null> } | null = null;
 
-function Weather({ settings, onOpen }: Props) {
-  const [wx, setWx] = useState<{
-    place: string;
-    current: { temp: number; code: number; day: boolean };
-  } | null>((wxCache?.data as never) ?? null);
-
+function useWeather(place: string): Wx | null {
+  const key = place.trim();
+  const [wx, setWx] = useState<Wx | null>(wxCache && wxCache.key === key ? wxCache.data : null);
   useEffect(() => {
-    if (wxCache && Date.now() - wxCache.at < 10 * 60_000) return;
-    const q = settings.weatherPlace.trim()
-      ? `?q=${encodeURIComponent(settings.weatherPlace.trim())}`
-      : "";
-    void fetch(`/api/weather${q}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => {
-        if (!j?.current) return;
-        wxCache = { at: Date.now(), data: j };
-        setWx(j);
-      })
-      .catch(() => {});
-  }, [settings.weatherPlace]);
+    if (wxCache && wxCache.key === key && Date.now() - wxCache.at < 10 * 60_000) {
+      setWx(wxCache.data);
+      return;
+    }
+    let flight = wxFlight;
+    if (!flight || flight.key !== key) {
+      const q = key ? `?q=${encodeURIComponent(key)}` : "";
+      const p: Promise<Wx | null> = fetch(`/api/weather${q}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          if (!j?.current) return null;
+          wxCache = { at: Date.now(), key, data: j as Wx };
+          return j as Wx;
+        })
+        .catch(() => null);
+      const mine = { key, p };
+      flight = mine;
+      wxFlight = mine;
+      void p.finally(() => {
+        if (wxFlight === mine) wxFlight = null;
+      });
+    }
+    let alive = true;
+    void flight.p.then((d) => {
+      if (alive && d) setWx(d);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [key]);
+  return wx;
+}
+
+/// 压在天上的字用什么颜色。
+///
+/// ⚠️ **不能照搬 skyIsDark。** 那条只看白天黑夜，是因为天气 app 在雨天会多盖一层
+/// 雾面玻璃把画面提亮；桌面这张小卡没有那层，雨天、雷雨的白天天空本来就偏暗，
+/// 深色字压上去会糊。所以雨和雷雨的白天也用浅字，再垫一层很淡的暗（见 Sky）。
+const lightInk = (scene: Scene, day: boolean) => !day || scene === "rain" || scene === "thunder";
+const inkOn = (scene: Scene, day: boolean) =>
+  lightInk(scene, day)
+    ? { color: "oklch(0.98 0 0)", textShadow: "0 1px 3px oklch(0 0 0 / 0.35)" }
+    : { color: "oklch(0.25 0.03 250)", textShadow: "none" };
+
+/// 整张卡的底：那片天。和天气 app 用同一套渐变，桌面和点进去之后是同一片天。
+function Sky({ scene, day }: { scene: Scene; day: boolean }) {
+  return (
+    <>
+      <span className="absolute inset-0" style={{ background: skyCss(scene, day) }} />
+      {day && (scene === "rain" || scene === "thunder") && (
+        <span
+          className="absolute inset-0"
+          style={{ background: "linear-gradient(180deg, oklch(0 0 0 / 0.2), oklch(0 0 0 / 0.06))" }}
+        />
+      )}
+    </>
+  );
+}
+
+/// 天气卡上的那幅小画。
+///
+/// ⚠️ **画出来，不是写出来。** 「26° 阴」谁都会写；一眼看过去是天气的，是那片天的颜色
+/// 和天上挂着的东西。所以整张卡的底是天空渐变，角上挂一幅小画：太阳、月亮、云、雨丝、
+/// 雪点、雾带，按场景拼。
+/// 用填色的形状，不用线稿——线稿图标放大了还是图标，填了色才像画。
+/// **不动**：桌面上好几张卡，每张都跑动画，手机就一直在耗电。
+function SkyArt({ scene, day, size }: { scene: Scene; day: boolean; size: number }) {
+  // 月牙靠遮罩挖出来。一屏可能有三张天气卡，遮罩的 id 必须各不相同，否则会互相借错
+  const mask = `moon${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
+  const cloud = (key: string, x: number, y: number, k: number, fill: string, op = 0.96) => (
+    <g key={key} transform={`translate(${x} ${y}) scale(${k})`} fill={fill} opacity={op}>
+      <circle cx="16" cy="20" r="9" />
+      <circle cx="28" cy="14" r="12" />
+      <circle cx="41" cy="21" r="8" />
+      <rect x="7" y="19" width="42" height="11" rx="5.5" />
+    </g>
+  );
+  const sun = (cx: number, cy: number, r: number) => (
+    <g key="sun">
+      <circle cx={cx} cy={cy} r={r * 2} fill="oklch(0.97 0.1 95)" opacity="0.32" />
+      <circle cx={cx} cy={cy} r={r} fill="oklch(0.95 0.14 90)" />
+    </g>
+  );
+  const moon = (cx: number, cy: number, r: number) => (
+    <g key="moon">
+      <mask id={mask}>
+        <rect width="100" height="100" fill="white" />
+        <circle cx={cx + r * 0.55} cy={cy - r * 0.35} r={r * 0.9} fill="black" />
+      </mask>
+      <circle cx={cx} cy={cy} r={r} fill="oklch(0.95 0.05 95)" mask={`url(#${mask})`} />
+    </g>
+  );
+  const stars = (
+    <g key="stars" fill="oklch(0.97 0.02 95)">
+      <circle cx="22" cy="22" r="1.1" opacity="0.9" />
+      <circle cx="38" cy="12" r="0.8" opacity="0.7" />
+      <circle cx="30" cy="48" r="0.9" opacity="0.6" />
+      <circle cx="88" cy="62" r="0.8" opacity="0.7" />
+    </g>
+  );
+  const drops = (color: string, n: number, x0: number) => (
+    <g key="drops" stroke={color} strokeWidth="2" strokeLinecap="round">
+      {Array.from({ length: n }, (_, i) => {
+        const x = x0 + i * 9;
+        const y = 62 + (i % 2) * 7;
+        return <line key={i} x1={x} y1={y} x2={x - 3.5} y2={y + 10} />;
+      })}
+    </g>
+  );
+  const flakes = (
+    <g key="flakes" fill="oklch(0.99 0 0)">
+      {[[30, 66], [42, 74], [54, 64], [66, 74], [78, 66]].map(([x, y], i) => (
+        <circle key={i} cx={x} cy={y} r="2.2" />
+      ))}
+    </g>
+  );
+
+  let parts: React.ReactNode[] = [];
+  if (scene === "clear") parts = day ? [sun(62, 38, 15)] : [stars, moon(62, 36, 14)];
+  else if (scene === "cloudy")
+    parts = [day ? sun(68, 30, 12) : moon(68, 28, 11), cloud("c", 14, 34, 1.25, "oklch(0.99 0 0)")];
+  else if (scene === "overcast")
+    parts = [
+      cloud("c1", 30, 18, 1.1, "oklch(0.9 0.012 250)", 0.9),
+      cloud("c2", 8, 38, 1.3, "oklch(0.97 0.006 250)"),
+    ];
+  else if (scene === "fog")
+    parts = [0, 1, 2].map((i) => (
+      <rect
+        key={`f${i}`}
+        x={14 + i * 6}
+        y={34 + i * 13}
+        width={66 - i * 8}
+        height="6"
+        rx="3"
+        fill="oklch(0.99 0 0)"
+        opacity={0.7 - i * 0.15}
+      />
+    ));
+  else if (scene === "rain")
+    parts = [cloud("c", 14, 22, 1.3, "oklch(0.93 0.01 250)"), drops("oklch(0.92 0.04 235)", 5, 30)];
+  else if (scene === "thunder")
+    parts = [
+      cloud("c", 14, 20, 1.3, "oklch(0.78 0.02 260)"),
+      <path key="bolt" d="M52 56 L42 72 H51 L45 88 L62 66 H53 L58 56 Z" fill="oklch(0.9 0.16 95)" />,
+      drops("oklch(0.9 0.03 235)", 3, 30),
+    ];
+  else if (scene === "snow") parts = [cloud("c", 14, 22, 1.3, "oklch(0.97 0.006 250)"), flakes];
 
   return (
-    <Card app="weather" onOpen={onOpen} label="天气">
+    <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden>
+      {parts}
+    </svg>
+  );
+}
+
+const shortPlace = (p: string) => p.split(" · ")[0];
+
+function Weather({ settings, onOpen }: Props) {
+  const wx = useWeather(settings.weatherPlace);
+  const scene = wx ? sceneOf(wx.current.code) : "cloudy";
+  const day = wx?.current.day ?? true;
+  const today = wx?.daily?.[0];
+  return (
+    <BleedCard app="weather" onOpen={onOpen} label="天气" empty={!wx}>
       {wx ? (
         <>
-          <Inner className="flex-1 flex items-center justify-between">
-            <span className="text-[32px] leading-none font-light tabular-nums" style={{ color: "var(--ink)" }}>
-              {wx.current.temp}°
+          <Sky scene={scene} day={day} />
+          <span className="absolute -top-1 -right-1">
+            <SkyArt scene={scene} day={day} size={92} />
+          </span>
+          <span className="absolute inset-0 p-3 flex flex-col text-left" style={inkOn(scene, day)}>
+            <span className="text-[11px] truncate pr-14" style={{ opacity: 0.85 }}>
+              {shortPlace(wx.place)}
             </span>
-            <span style={{ color: "var(--ink-dim)" }}>
-              <Glyph code={wx.current.code} day={wx.current.day} size={30} />
-            </span>
-          </Inner>
-          <Inner className="mt-1.5 shrink-0 flex items-baseline gap-1.5">
-            <span className="text-[11px] shrink-0" style={{ color: "var(--ink-dim)" }}>
+            <span className="text-[38px] leading-none font-light tabular-nums mt-1">{wx.current.temp}°</span>
+            <span className="flex-1" />
+            <span className="text-[11px] truncate">
               {textOf(wx.current.code)}
+              {today ? `  ${today.min}° / ${today.max}°` : ""}
             </span>
-            <span className="text-[10px] truncate" style={{ color: "var(--ink-faint)" }}>
-              {wx.place}
-            </span>
-          </Inner>
+          </span>
         </>
       ) : (
-        <Inner className="flex-1 grid place-items-center">
-          {/* 空状态这行是这张卡当下的正文，不是附注。玻璃那条下限保的是
-              --ink 那一档，--ink-faint 压在亮壁纸上会读不清。 */}
-          <span className="text-[12px]" style={{ color: "var(--ink-dim)" }}>
-            在看外面…
-          </span>
-        </Inner>
+        // 空状态这行是这张卡当下的正文，不是附注——用 --ink-dim，别用 faint
+        <span className="h-full grid place-items-center text-[12px]" style={{ color: "var(--ink-dim)" }}>
+          在看外面…
+        </span>
       )}
-    </Card>
+    </BleedCard>
+  );
+}
+
+const dayName = (date: string, i: number) =>
+  i === 0 ? "今天" : i === 1 ? "明天" : `周${"日一二三四五六"[new Date(`${date}T00:00`).getDay()]}`;
+
+function WeatherWide({ settings, onOpen }: Props) {
+  const wx = useWeather(settings.weatherPlace);
+  const scene = wx ? sceneOf(wx.current.code) : "cloudy";
+  const day = wx?.current.day ?? true;
+  const days = (wx?.daily ?? []).slice(0, 5);
+  return (
+    <BleedCard app="weather" onOpen={onOpen} label="天气 · 几天" empty={!wx}>
+      {wx ? (
+        <>
+          <Sky scene={scene} day={day} />
+          <span className="absolute -top-2 right-1">
+            <SkyArt scene={scene} day={day} size={80} />
+          </span>
+          <span className="absolute inset-0 px-3.5 pt-2.5 pb-2.5 flex flex-col text-left" style={inkOn(scene, day)}>
+            <span className="flex items-baseline gap-2 pr-20 min-w-0">
+              <span className="text-[30px] leading-none font-light tabular-nums shrink-0">{wx.current.temp}°</span>
+              <span className="text-[12px] truncate">
+                {textOf(wx.current.code)} · {shortPlace(wx.place)}
+              </span>
+            </span>
+            <span className="flex-1" />
+            <span className="grid grid-cols-5 gap-1 text-center">
+              {days.map((d, i) => (
+                <span key={d.date} className="flex flex-col items-center gap-1">
+                  <span className="text-[10px]" style={{ opacity: 0.85 }}>
+                    {dayName(d.date, i)}
+                  </span>
+                  <Glyph code={d.code} day size={18} />
+                  <span className="text-[10px] tabular-nums">
+                    {d.min}°/{d.max}°
+                  </span>
+                </span>
+              ))}
+            </span>
+          </span>
+        </>
+      ) : (
+        <span className="h-full grid place-items-center text-[12px]" style={{ color: "var(--ink-dim)" }}>
+          在看外面…
+        </span>
+      )}
+    </BleedCard>
+  );
+}
+
+/// 日出日落。**太阳走到哪儿了，画在一条弧上。**
+///
+/// 弧是一段正弦：日出、日落正好压在地平线上，中间最高；两头各多画出去四分之一个白天，
+/// 落到地平线下面——这样天黑以后那个点还在线上，只是沉下去了。
+/// ⚠️ 时间用接口换算好的绝对时间戳（见 /api/weather 的 localToEpoch），
+/// 不拿 "05:37" 这种不带时区的字符串在手机上 new Date。
+const hm = (t: number) => {
+  const d = new Date(t);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+};
+
+function SunArc({ settings, onOpen }: Props) {
+  const wx = useWeather(settings.weatherPlace);
+  /// 0 = 还没挂载。不在渲染时直接读时间（水合）
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const d0 = wx?.daily?.[0];
+  const rise = d0?.sunrise;
+  const set = d0?.sunset;
+  const nextRise = wx?.daily?.[1]?.sunrise;
+  const ready = !!(wx && now && rise && set && set > rise);
+
+  let body: React.ReactNode = (
+    <span className="h-full grid place-items-center text-[12px]" style={{ color: "var(--ink-dim)" }}>
+      在看太阳…
+    </span>
+  );
+
+  if (ready && wx && rise && set) {
+    const L = set - rise;
+    const start = rise - L * 0.25;
+    const end = set + L * 0.25;
+    // 弧占卡片右边大半，左边留给字。单位是卡片宽、高的百分比
+    const X0 = 36;
+    const X1 = 96;
+    const H = 66;
+    const A = 40;
+    const pt = (t: number) => ({
+      x: X0 + ((t - start) / (end - start)) * (X1 - X0),
+      y: H - A * Math.sin((Math.PI * (t - rise)) / L),
+    });
+    const path = Array.from({ length: 49 }, (_, i) => pt(start + (i / 48) * (end - start)))
+      .map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(2)} ${p.y.toFixed(2)}`)
+      .join(" ");
+    const up = now >= rise && now <= set;
+    const sun = pt(Math.min(end, Math.max(start, now)));
+    const scene = sceneOf(wx.current.code);
+    const ink = inkOn(scene, up);
+    const top = up
+      ? `日落 ${hm(set)}`
+      : now < rise
+        ? `日出 ${hm(rise)}`
+        : nextRise
+          ? `明日日出 ${hm(nextRise)}`
+          : "";
+    const bottom = up ? (nextRise ? `明日日出 ${hm(nextRise)}` : "") : `今天日落 ${hm(set)}`;
+    body = (
+      <>
+        <Sky scene={scene} day={up} />
+        <svg
+          className="absolute inset-0 w-full h-full"
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          aria-hidden
+        >
+          {/* 拉伸过的坐标系里线会被压扁，non-scaling-stroke 让粗细不跟着变 */}
+          <line x1="0" x2="100" y1={H} y2={H} stroke={ink.color} strokeOpacity="0.28" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+          <path d={path} fill="none" stroke={ink.color} strokeOpacity="0.5" strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
+        </svg>
+        {/* 太阳单独画成一个点：放进上面那张拉伸过的 SVG 里，圆会被压成椭圆 */}
+        <span
+          className="absolute rounded-full"
+          data-sun={up ? "up" : "down"}
+          style={{
+            left: `${sun.x}%`,
+            top: `${sun.y}%`,
+            width: 14,
+            height: 14,
+            transform: "translate(-50%, -50%)",
+            background: up ? "oklch(0.97 0.1 95)" : "oklch(0.9 0.03 250)",
+            boxShadow: up ? "0 0 14px 5px oklch(0.97 0.12 95 / 0.65)" : "none",
+            opacity: up ? 1 : 0.55,
+          }}
+        />
+        <span className="absolute inset-0 px-3.5 py-2.5 flex flex-col text-left" style={ink}>
+          <span className="flex justify-between gap-2 text-[11px]">
+            <span className="truncate" style={{ opacity: 0.85 }}>
+              {shortPlace(wx.place)}
+            </span>
+            <span className="shrink-0 tabular-nums">{top}</span>
+          </span>
+          <span className="text-[34px] leading-none font-light tabular-nums mt-1">{wx.current.temp}°</span>
+          <span className="flex-1" />
+          <span className="flex justify-between gap-2 text-[11px]">
+            <span className="truncate">
+              {textOf(wx.current.code)}
+              {d0 ? `  ${d0.min}° / ${d0.max}°` : ""}
+            </span>
+            <span className="shrink-0 tabular-nums" style={{ opacity: 0.85 }}>
+              {bottom}
+            </span>
+          </span>
+        </span>
+      </>
+    );
+  }
+
+  return (
+    <BleedCard app="weather" onOpen={onOpen} label="日出日落" empty={!ready}>
+      {body}
+    </BleedCard>
   );
 }
 
@@ -478,6 +807,8 @@ function Notes({ settings, contacts, onOpen }: Props) {
 export function Widget({ id, ...rest }: { id: WidgetId } & Props) {
   if (id === "clock") return <Clock {...rest} />;
   if (id === "weather") return <Weather {...rest} />;
+  if (id === "weatherWide") return <WeatherWide {...rest} />;
+  if (id === "sun") return <SunArc {...rest} />;
   if (id === "music") return <Music {...rest} />;
   if (id === "days") return <Days {...rest} />;
   if (id === "photos") return <PhotoFrame {...rest} pick={rest.settings.photoWidget} label="相册" />;
