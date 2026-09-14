@@ -47,6 +47,8 @@ export type Contact = {
   /// 一起听过多少首。**按「开始放一首」计**，不按听完计——
   /// 跳过的那些也是一起经过的。
   songs?: number;
+  /// 它自己设的状态（lib/os/status.ts）。过期不删，读的时候判断
+  status?: { word: string; text?: string; at: number };
   createdAt: number;
 };
 

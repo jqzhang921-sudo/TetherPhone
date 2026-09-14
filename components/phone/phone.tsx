@@ -38,6 +38,7 @@ import { loadLetters, unreadCount } from "@/lib/letters/store";
 import { loadComments, loadPosts } from "@/lib/moments/store";
 import { loadNotes } from "@/lib/notes/store";
 import { ThemeApp } from "@/components/apps/theme-app";
+import { myStatus } from "@/lib/os/status";
 import { clearContactImage } from "@/lib/os/contact-image";
 
 type Open = { id: string; origin: { x: number; y: number } };
@@ -373,6 +374,7 @@ export function Phone() {
     bannerAt: c.bannerAt,
     songs: c.songs,
     together: c.together,
+    status: c.status ?? null,
   });
 
   const app = open ? appById(open.id) : undefined;
@@ -444,6 +446,11 @@ export function Phone() {
                 if (c) void upsertContact({ ...c, greetedAt: Date.now() });
               }}
               openWith={chatWith}
+              onSetContactStatus={(id, status) => {
+                // 和 onGreeted 一样从 ref 里取最新的那份，别拿聊天页手上可能旧了的联系人去覆盖
+                const c = contactsRef.current.find((x) => x.id === id);
+                if (c) void upsertContact({ ...c, status });
+              }}
             />
           ) : app.id === "diary" ? (
             <DiaryApp contacts={contacts} settings={settings} />
@@ -524,6 +531,7 @@ export function Phone() {
             face: me,
             tint: ME_TINT,
             bannerAt: settings.userBannerAt || undefined,
+            status: myStatus(settings),
           }}
           onEdit={() => {
             // 自己的资料在设置里改——名字、签名、头像本来就都在那儿
@@ -534,6 +542,9 @@ export function Phone() {
               : { x: 0, y: 0 };
             window.setTimeout(() => openApp("settings", c), 60);
           }}
+          onSetStatus={(word, text) =>
+            patchSettings({ myStatusWord: word, myStatusText: text, myStatusAt: word ? Date.now() : 0 })
+          }
           onClose={closeLayer}
         />
       )}

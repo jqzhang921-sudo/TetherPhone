@@ -35,6 +35,11 @@ export type Settings = {
   /// 自己主页那条横幅换过的时间戳。图存在 photos 表 `__banner___me__` 上。
   userBannerAt: number;
   userSignature: string;
+  /// 她自己的状态（lib/os/status.ts）。拆成三个平铺的键：settings 是一张扁的表，
+  /// 塞一段 JSON 进去读写两头都得 try，写坏一处整张表都读不出来
+  myStatusWord: string;
+  myStatusText: string;
+  myStatusAt: number;
   /// 手动指定的天气城市。留空 = 自动定位。
   /// 有这个字段是因为按 IP 定的是**网络出口**，家宽常常落在省会甚至邻省。
   weatherPlace: string;
@@ -94,6 +99,9 @@ export const DEFAULT_SETTINGS: Settings = {
   userAvatarAt: 0,
   userBannerAt: 0,
   userSignature: "",
+  myStatusWord: "",
+  myStatusText: "",
+  myStatusAt: 0,
   weatherPlace: "",
   musicApiBase: "",
   togetherWith: "",

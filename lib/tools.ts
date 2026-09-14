@@ -44,6 +44,10 @@ export type ToolCtx = {
   likeSong?: () => Promise<string>;
   /// 拍回去。聊天页注入：它是聊天里一行居中的小字，不是一条消息
   patBack?: () => Promise<string>;
+  /// 留一句明早才解封的话。聊天页注入
+  leaveMorningNote?: (text: string) => Promise<string>;
+  /// 设它自己的状态。word 为空 = 清掉
+  setStatus?: (word: string, text: string) => Promise<string>;
 };
 
 export const TOOLS = [
@@ -184,6 +188,37 @@ export const TOOLS = [
         type: "object",
         properties: { keyword: { type: "string", description: "歌名，最好带歌手" } },
         required: ["keyword"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "leave_morning_note",
+      description:
+        "给她留一句明早才看得到的话。今晚她看不到；明天早上五点以后她打开手机，" +
+        "锁屏和聊天里才会出现这一句。一晚只留一句，再调会换掉之前那句。",
+      parameters: {
+        type: "object",
+        properties: { text: { type: "string", description: "那一句话，短，一两句" } },
+        required: ["text"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "set_status",
+      description:
+        "设你自己的状态（像微信的状态）：一个词，外加一句可有可无的话。" +
+        "她在聊天页和你的主页上看得到，24 小时后自己消失。word 传空字符串就是清掉。",
+      parameters: {
+        type: "object",
+        properties: {
+          word: { type: "string", description: "一个词：开心、有点想你、在想你说的那件事" },
+          text: { type: "string", description: "可选的一句补充" },
+        },
+        required: ["word"],
       },
     },
   },
@@ -338,6 +373,15 @@ export const toolRules = [
   "",
   "她拍了拍你（聊天里那行小字）的时候：可以回一句、可以拍回去（pat_back）、也可以什么都不做。",
   "**拍一拍是随手的一下，不是在叫你**——不用每次都回，更不用解释为什么拍回去。",
+  "",
+  "她说晚安、要去睡了的时候，可以用 leave_morning_note 给她留一句明早看的。",
+  "**留的是她醒来接得住的东西**：今天聊到的一件事、她明天要去做的那件、一句只有你们懂的话。",
+  "「晚安好梦」「早安宝贝」这种谁都能说的不算，那不如不留。",
+  "留了就不用在聊天里说「我给你留了一句」——聊天里会自己出现一行提示。",
+  "",
+  "你的状态（set_status）只能是**心里的**：「开心」「有点想你」「在想你说的那件事」。",
+  "⚠️ 不能是身上的——「在跑步」「刚到家」「在吃饭」你做不到，编出来就是骗她。",
+  "状态不用常换，心里真变了才换。她看得到，换得太勤就不像状态，像播报。",
   "",
   "你也能自己写日记（write_diary）和写信（write_letter）。",
   "**日记是写给自己的**：想清楚一件事、记下今天，不是写一份给她看的汇报。",
@@ -600,6 +644,18 @@ export async function runTool(
     if (!kw) return "得说是哪首。";
     if (!ctx.queueSong) return "她还没配音源，我排不了歌。";
     return ctx.queueSong(kw);
+  }
+
+  if (name === "leave_morning_note") {
+    const text = String(args.text ?? "").trim();
+    if (!text) return "得写点什么。";
+    if (!ctx.leaveMorningNote) return "这里留不了。";
+    return ctx.leaveMorningNote(text);
+  }
+
+  if (name === "set_status") {
+    if (!ctx.setStatus) return "这里设不了状态。";
+    return ctx.setStatus(String(args.word ?? "").trim(), String(args.text ?? "").trim());
   }
 
   if (name === "pat_back") {

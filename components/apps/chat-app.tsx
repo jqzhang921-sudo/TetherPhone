@@ -1,8 +1,9 @@
 "use client";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import { loadMsgs, saveMsgs, newId, type Msg, type Share } from "@/lib/chat/store";
+import { loadMsgs, revealed, saveMsgs, newId, type Msg, type Share } from "@/lib/chat/store";
 import { get } from "@/lib/db/idb";
 import { haptic } from "@/lib/os/haptic";
+import { liveStatus, myStatus, statusLabel, statusLine } from "@/lib/os/status";
 import { displayName, type Contact } from "@/lib/os/contacts";
 import { dayLabel, loadDiary, type DiaryEntry } from "@/lib/diary/store";
 import {
@@ -26,7 +27,7 @@ import { usePlayer } from "@/components/phone/player";
 import { PHONE, loadTracks, saveTrack, search as searchSongs } from "@/lib/music/store";
 import type { Settings } from "@/lib/os/settings";
 import { Avatar } from "@/components/phone/avatar";
-import { faceOf } from "@/lib/os/avatar";
+import { faceOf, useMe } from "@/lib/os/avatar";
 import { bubbleById } from "@/lib/os/bubbles";
 import { useChatSkin } from "@/lib/os/chat-bg";
 import { StatusBar } from "@/components/phone/status-bar";
@@ -51,6 +52,8 @@ function systemPrompt(
   lastAt: number | null,
   /// 现在正在放什么、唱到哪。没在放就是空串。
   playing: string,
+  /// 两个人的状态、留了还没解封的那句、「她在说晚安」的提醒。没有就是空串
+  mood: string,
 ) {
   const bits: string[] = [];
   if (c.name.trim()) bits.push(`你叫${c.name.trim()}。`);
@@ -98,6 +101,7 @@ function systemPrompt(
   // 「在放什么」跟在时间后面，理由同上：它也是每条都在变的那一类。
   bits.push(nowLine(lastAt));
   if (playing) bits.push(playing);
+  if (mood) bits.push(mood);
 
   return bits.join("\n");
 }
@@ -167,6 +171,22 @@ const PAT_RULE = [
   "可以回一句、可以拍回去（pat_back），也可以什么都不做——那就只回一个减号 `-`，别的一个字都不要写。",
 ].join("\n");
 
+/// 她是不是在说晚安。宽一点：「我先睡了」「困了去睡」「gn」都算。
+/// 认错了也不要紧——命中之后只是**提醒它可以留一句**，留不留还是它自己定。
+const GOODNIGHT = /晚安|睡了|去睡|睡觉|睡啦|先睡|困了|good\s*night|\bgn\b/i;
+
+/// 明早那句几点解封：**说晚安之后至少三小时**，而且落在早上。
+/// 23 点说 → 次日 5 点；凌晨 1 点半说 → 当天 5 点；凌晨 3 点说 → 6 点（不能拖到第二天）；
+/// 晚上 8 点说 → 次日 5 点。⚠️ 不按「明天」算：凌晨说的晚安，「明天」已经是后天了。
+function morningAfter(at: number) {
+  const earliest = at + 3 * 3600_000;
+  const five = new Date(earliest);
+  five.setHours(5, 0, 0, 0);
+  if (new Date(earliest).getHours() < 12) return Math.max(earliest, five.getTime());
+  five.setDate(five.getDate() + 1);
+  return five.getTime();
+}
+
 /// 隔多久才给它一次先开口的机会。
 ///
 /// ⚠️ **门槛是「隔了多久」，不是「到点了」。** 定时推送是她明确否掉的那种
@@ -234,16 +254,19 @@ export function ChatApp({
   onAddContact,
   onGreeted,
   openWith,
+  onSetContactStatus,
 }: {
   contacts: Contact[];
   settings: Settings;
-  onOpenProfile: (c: Contact) => void;
+  onOpenProfile: (c: Contact | "me") => void;
   /// 通讯录并进来了：**列表就是通讯录**，所以新建也归这儿。
   onAddContact: () => void;
   /// 记下它「先开口」过了，防同一段沉默里反复打招呼
   onGreeted: (id: string) => void;
   /// 从主页「发消息」进来时，直接开这个人的会话，别把人扔回列表让他再点一次。
   openWith?: string | null;
+  /// 它改了自己的状态。状态挂在联系人身上，联系人归外层管，这里只报上去
+  onSetContactStatus: (id: string, status: Contact["status"]) => void;
 }) {
   const bubble = bubbleById(settings.bubbleStyle);
   /// 聊天页的宽高比，算背景下限要按 cover 裁过再取样。量一次就够。
@@ -290,7 +313,8 @@ export function ChatApp({
       const out: Record<string, string> = {};
       for (const c of contacts) {
         const rows = await loadMsgs(c.id);
-        const last = rows.at(-1);
+        // 明早才解封的那句不能提前出现在列表的预览里
+        const last = [...rows].reverse().find((m) => revealed(m));
         out[c.id] = last
           ? last.content.slice(0, 24) ||
             (last.share ? "[转发了一条动态]" : last.photoIds?.length ? "[图片]" : "")
@@ -371,7 +395,7 @@ export function ChatApp({
   useEffect(() => {
     if (!settings.proactive || !contact || busy || greeting.current) return;
     if (!settings.apiKey.trim()) return;
-    const last = msgs.at(-1);
+    const last = [...msgs].reverse().find((m) => revealed(m));
     if (!last) return;
     if (Date.now() - last.at < GREET_GAP) return;
     // 同一段沉默里只开口一次
@@ -393,7 +417,7 @@ export function ChatApp({
   useEffect(() => {
     if (!contact || busy || greeting.current) return;
     if (!settings.apiKey.trim()) return;
-    const last = [...msgs].reverse().find((m) => m.role !== "event");
+    const last = [...msgs].reverse().find((m) => m.role !== "event" && revealed(m));
     if (!last?.share || last.role !== "user" || last.contactId !== contact.id) return;
     if (replied.current === last.id) return;
     replied.current = last.id;
@@ -447,6 +471,14 @@ export function ChatApp({
     }
     setBusy(true);
     if (shots.length) void refreshPhotos(contact.id);
+    const nowT = Date.now();
+    // 它留过、还没解封的那句。不发进历史（at 在未来，会被当成它最后说的话），
+    // 但要在系统提示词里告诉它：留过了，别在聊天里提前说出来
+    const pendingNote = history.find((m) => m.morning && !revealed(m, nowT));
+    const nightHint =
+      !first && !reply && GOODNIGHT.test(body)
+        ? "她在说晚安 / 要去睡了。想的话，可以用 leave_morning_note 给她留一句明早才看得到的话。"
+        : "";
 
     try {
       // 带图的那条按 OpenAI 多模态格式发。**不猜模型能不能看图**——
@@ -456,7 +488,7 @@ export function ChatApp({
           // 事件不发给模型——除了她拍了拍它：那一下是冲着它来的，它得知道。
           // 它自己拍回去的那几行不发：它在那一轮里调过工具，而把「[你拍了拍她]」
           // 当成它说过的话塞回去，它下次就会学着把这行字直接打出来。
-          .filter((m) => m.role !== "event" || m.pat === "her")
+          .filter((m) => revealed(m, nowT) && (m.role !== "event" || m.pat === "her"))
           .map(async (m): Promise<ApiMsg> => {
             if (m.role === "event") return { role: "user", content: "[她拍了拍你]" };
             // 转发来的动态：先说清是谁的、哪天的，再接她自己附的话（如果有）
@@ -510,6 +542,17 @@ export function ChatApp({
               .filter(Boolean)
               .join("\n")
           : "",
+        // 两个人的状态、留了还没解封的那句、晚安提醒。**都是每条都可能变的**，跟在时间后面
+        [
+          statusLine("她", myStatus(settings, nowT), nowT),
+          statusLine("你", liveStatus(contact.status, nowT), nowT),
+          pendingNote
+            ? `你给她留了一句明早才解封的话：「${pendingNote.content}」——她还没看到，别在聊天里提前说出来。`
+            : "",
+          nightHint,
+        ]
+          .filter(Boolean)
+          .join("\n"),
       ) + (first ? OPEN_RULE : reply === "pat" ? PAT_RULE : "");
       const replyId = newId();
       let visible = "";
@@ -652,6 +695,37 @@ export function ChatApp({
                     : `排进清单了：《${pick.title}》- ${pick.artist}。等这首放完就是它。`;
                 }
               : undefined,
+            // 明早才解封的那句。**at 就是解封时刻**，所以它在对话里天然排在「早上」
+            leaveMorningNote: async (words: string) => {
+              const at = Date.now();
+              const open = morningAfter(at);
+              const rows = await loadMsgs(contact.id);
+              // 一晚只留一句：还没解封的那句就地换掉，不叠第二句，也不再冒第二行提示
+              const old = rows.find((m) => m.morning && !revealed(m, at));
+              const note: Msg = {
+                id: old?.id ?? newId(),
+                contactId: contact.id,
+                role: "assistant",
+                content: words,
+                morning: true,
+                hiddenUntil: open,
+                at: open,
+              };
+              const hint: Msg = {
+                id: newId(),
+                contactId: contact.id,
+                role: "event",
+                content: `${displayName(contact)}给你留了一句话，明早打开就能看到`,
+                at,
+              };
+              await saveMsgs(old ? [note] : [note, hint]);
+              return old ? "换好了，她还是明早才看得到。" : "留好了。她明早才看得到，今晚别提。";
+            },
+            // 它自己的状态。挂在联系人身上：主页、会话列表、聊天页顶上一处改处处有
+            setStatus: async (word: string, words: string) => {
+              onSetContactStatus(contact.id, word ? { word, text: words || undefined, at: Date.now() } : undefined);
+              return word ? `状态换成了「${word}」。` : "状态清掉了。";
+            },
             // 拍回去：只是一行小字。写进库就行——这一轮回复结束时会整段重读，自然看得到
             patBack: async () => {
               await saveMsgs([
@@ -719,7 +793,7 @@ export function ChatApp({
     } finally {
       setBusy(false);
     }
-  }, [text, pending, busy, contact, msgs, settings, diary, memory, notes, photos, refreshPhotos, player]);
+  }, [text, pending, busy, contact, msgs, settings, diary, memory, notes, photos, refreshPhotos, player, onSetContactStatus]);
 
   /// ⚠️ 上面那个 effect 要用 send，但 send 定义在它后面、而且每次渲染都换新的。
   /// 放进依赖里会让 effect 每次都重跑（= 反复开口）。用 ref 拿最新的那个。
@@ -730,10 +804,14 @@ export function ChatApp({
   ///
   /// ⚠️ **双击头像是拍，单击还是进主页**——单击得等一下，确认不是双击的前半下。
   /// 等 260ms：再短人手来不及点第二下，再长点头像进主页会觉得卡。
-  /// ⚠️ **连拍好几下只让它接一次。** 每一下都记一行（和微信一样一行一行冒出来），
-  /// 但回话要等最后一下落定 1.5 秒后才问——不然拍三下就是三次模型调用、三句回话。
-  const [patKey, setPatKey] = useState(0);
+  /// 头像挂在每一段话旁边，她那侧也有：双击它的是拍它；双击自己的是「拍了拍自己」
+  /// ——和微信一样，拍自己不通知任何人，它也就不接。
+  /// ⚠️ **连拍好几下只让它接一次。** 每一下都记一行，回话要等最后一下落定 1.5 秒后才问。
+  const myFace = useMe(settings);
+  /// 刚被拍的是哪个头像（顶栏那个叫 "header"）。n 每拍一下加一，换 key 让晃的动画重放
+  const [shake, setShake] = useState<{ id: string; n: number } | null>(null);
   const tapTimer = useRef<number | null>(null);
+  const tapKey = useRef("");
   useEffect(
     () => () => {
       // 换人、离开聊天：等着的单击和等着的回话都作废，别让它跑到另一段对话里去
@@ -745,21 +823,22 @@ export function ChatApp({
     [contact?.id],
   );
 
-  const pat = () => {
+  const pat = (who: "them" | "self", at: string) => {
     if (!contact) return;
     // ⚠️ 震动必须在这一下点击里同步调，放到 await 后面就不算手势了
     haptic();
-    setPatKey((k) => k + 1);
+    setShake((prev) => ({ id: at, n: (prev?.n ?? 0) + 1 }));
     const ev: Msg = {
       id: newId(),
       contactId: contact.id,
       role: "event",
-      content: `你拍了拍${displayName(contact)}`,
-      pat: "her",
+      content: who === "them" ? `你拍了拍${displayName(contact)}` : "你拍了拍自己",
+      pat: who === "them" ? "her" : "self",
       at: Date.now(),
     };
     setMsgs((ms) => [...ms, ev]);
     void saveMsgs([ev]);
+    if (who === "self") return;
     if (patTimer.current) window.clearTimeout(patTimer.current);
     patTimer.current = window.setTimeout(() => {
       patTimer.current = null;
@@ -768,16 +847,22 @@ export function ChatApp({
     }, 1500);
   };
 
-  const tapAvatar = () => {
-    if (tapTimer.current) {
+  /// 点头像。who：点的是它的还是自己的；at：点的是哪一个头像，晃的时候只晃那一个
+  const tapFace = (who: "them" | "self", at: string) => {
+    const key = `${who}:${at}`;
+    if (tapTimer.current && tapKey.current === key) {
       window.clearTimeout(tapTimer.current);
       tapTimer.current = null;
-      pat();
+      pat(who, at);
       return;
     }
+    // 先点了别的头像、紧接着点这个：前一下作废，不算双击
+    if (tapTimer.current) window.clearTimeout(tapTimer.current);
+    tapKey.current = key;
     tapTimer.current = window.setTimeout(() => {
       tapTimer.current = null;
-      if (contact) onOpenProfile(contact);
+      if (who === "self") onOpenProfile("me");
+      else if (contact) onOpenProfile(contact);
     }, 260);
   };
 
@@ -831,8 +916,15 @@ export function ChatApp({
                 <Avatar face={faceOf(c)} />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-[15px] truncate" style={{ color: "var(--ink)" }}>
-                  {displayName(c)}
+                <span className="flex items-baseline gap-1.5 min-w-0">
+                  <span className="text-[15px] truncate" style={{ color: "var(--ink)" }}>
+                    {displayName(c)}
+                  </span>
+                  {liveStatus(c.status) && (
+                    <span className="text-[11px] truncate max-w-[50%]" style={{ color: "var(--ink-faint)" }}>
+                      {statusLabel(liveStatus(c.status)!)}
+                    </span>
+                  )}
                 </span>
                 <span className="block text-[13px] truncate mt-0.5" style={{ color: "var(--ink-faint)" }}>
                   {previews[c.id] || "还没说过话"}
@@ -844,6 +936,9 @@ export function ChatApp({
       </div>
     );
   }
+
+  /// 明早才解封的那句，到点之前不画
+  const shown = msgs.filter((m) => revealed(m));
 
   // ── 聊天室 ──────────────────────────────────────────────────
   return (
@@ -889,24 +984,32 @@ export function ChatApp({
         </button>
         {/* 点头像进主页，**双击头像是拍一拍**。名字那块单击直接进主页，不用等那 260ms */}
         <button
-          onClick={tapAvatar}
+          onClick={() => tapFace("them", "header")}
           className="shrink-0 active:opacity-60"
           aria-label={`${displayName(contact)}，双击拍一拍`}
         >
           {/* 换 key = 重新挂载 = 晃的动画再放一遍 */}
-          <span key={patKey} className={`block ${patKey ? "anim-pat" : ""}`}>
+          <span
+            key={shake?.id === "header" ? `header-${shake.n}` : "header"}
+            className={`block ${shake?.id === "header" ? "anim-pat" : ""}`}
+          >
             <Avatar face={faceOf(contact)} size={32} />
           </span>
         </button>
-        <button onClick={() => onOpenProfile(contact)} className="active:opacity-60">
-          <span className="text-[16px] font-medium" style={{ color: "var(--ink)" }}>
+        <button onClick={() => onOpenProfile(contact)} className="active:opacity-60 min-w-0 text-left">
+          <span className="block text-[16px] font-medium truncate" style={{ color: "var(--ink)" }}>
             {displayName(contact)}
           </span>
+          {liveStatus(contact.status) && (
+            <span className="block text-[11px] truncate" style={{ color: "var(--ink-faint)" }}>
+              {statusLabel(liveStatus(contact.status)!)}
+            </span>
+          )}
         </button>
       </header>
 
       <div className="flex-1 min-h-0 overflow-y-auto no-bar px-4 pb-2 flex flex-col gap-2.5">
-        {msgs.length === 0 && !busy && (
+        {shown.length === 0 && !busy && (
           <div className="flex-1 grid place-items-center px-8">
             <p className="text-[13px]" style={{ color: "var(--ink-faint)" }}>
               还没有说过话。
@@ -914,16 +1017,16 @@ export function ChatApp({
           </div>
         )}
 
-        {msgs.map((m, i) => (
+        {shown.map((m, i) => (
           <Fragment key={m.id}>
             {/* 跨天 / 隔了很久，插一条居中的分隔。**只在真的断开时插**——
                 每条都写日期就成了流水账，而分隔的意义正是「这里断过」。 */}
-            {gapLabel(msgs[i - 1]?.at, m.at) && (
+            {gapLabel(shown[i - 1]?.at, m.at) && (
               <div
                 className="self-center px-4 py-1 text-[11px]"
                 style={{ color: "var(--ink-faint)" }}
               >
-                {gapLabel(msgs[i - 1]?.at, m.at)}
+                {gapLabel(shown[i - 1]?.at, m.at)}
               </div>
             )}
             {m.role === "event" ? (
@@ -935,11 +1038,40 @@ export function ChatApp({
                 {m.content}
               </div>
             ) : (
+              // ⚠️ **头像挂在每一段的第一句旁边，不是每一句。** 连着说三句就三个头像的话，
+              // 一列一样的脸比气泡还显眼。换人说、中间隔了一行小字或一条时间分隔，才算新的一段。
               <div
-                className={`max-w-[78%] flex flex-col gap-1.5 ${
-                  m.role === "user" ? "self-end items-end" : "self-start items-start"
+                className={`max-w-[90%] flex items-start gap-2 ${
+                  m.role === "user" ? "self-end flex-row-reverse" : "self-start"
                 }`}
               >
+                <span className="w-8 shrink-0">
+                  {(i === 0 || shown[i - 1].role !== m.role || !!gapLabel(shown[i - 1]?.at, m.at)) && (
+                    <button
+                      onClick={() => tapFace(m.role === "user" ? "self" : "them", m.id)}
+                      aria-label={m.role === "user" ? "我，双击拍拍自己" : `${displayName(contact)}，双击拍一拍`}
+                      className="block active:opacity-60"
+                    >
+                      <span
+                        key={shake?.id === m.id ? `${m.id}-${shake.n}` : m.id}
+                        className={`block ${shake?.id === m.id ? "anim-pat" : ""}`}
+                      >
+                        <Avatar face={m.role === "user" ? myFace : faceOf(contact)} size={32} />
+                      </span>
+                    </button>
+                  )}
+                </span>
+              <div
+                className={`min-w-0 flex flex-col gap-1.5 ${
+                  m.role === "user" ? "items-end" : "items-start"
+                }`}
+              >
+                {m.morning && (
+                  // 早上解封的那句，标一下来历——不然看着就是它五点整发来一条消息
+                  <span className="text-[10px] px-1" style={{ color: "var(--ink-faint)" }}>
+                    昨晚留给你的
+                  </span>
+                )}
                 {m.share && (
                   // 转发来的动态。**做成一张卡，不是一个气泡**——气泡是「说的话」，
                   // 这是「递过来的东西」。混成一种样子，就分不清哪句是她说的、哪句是原帖。
@@ -1019,19 +1151,24 @@ export function ChatApp({
                   {clock(m.at)}
                 </span>
               </div>
+              </div>
             )}
           </Fragment>
         ))}
 
         {busy && (
-          <div className="self-start px-3.5 py-3"
-            style={{ borderRadius: "20px 20px 20px 6px", ...bubble.them }}>
-            <span className="flex gap-1">
-              {[0, 1, 2].map((i) => (
-                <span key={i} className="w-1.5 h-1.5 rounded-full animate-pulse"
-                  style={{ background: "var(--ink-faint)", animationDelay: `${i * 160}ms` }} />
-              ))}
+          <div className="self-start flex items-start gap-2">
+            <span className="w-8 shrink-0">
+              <Avatar face={faceOf(contact)} size={32} />
             </span>
+            <div className="px-3.5 py-3" style={{ borderRadius: "20px 20px 20px 6px", ...bubble.them }}>
+              <span className="flex gap-1">
+                {[0, 1, 2].map((i) => (
+                  <span key={i} className="w-1.5 h-1.5 rounded-full animate-pulse"
+                    style={{ background: "var(--ink-faint)", animationDelay: `${i * 160}ms` }} />
+                ))}
+              </span>
+            </div>
           </div>
         )}
 

@@ -4,7 +4,7 @@ import { StatusBar } from "./status-bar";
 import { Avatar } from "./avatar";
 import { usePlayer } from "./player";
 import { faceOf } from "@/lib/os/avatar";
-import { loadMsgs } from "@/lib/chat/store";
+import { loadMsgs, revealed } from "@/lib/chat/store";
 import { displayName, type Contact } from "@/lib/os/contacts";
 
 /// 锁屏。上滑解锁，桌面上点一下也行——鼠标用户没有"上滑"这个动作，
@@ -21,18 +21,24 @@ export function LockScreen({
   onUnlock: () => void;
 }) {
   const player = usePlayer();
-  const [last, setLast] = useState<{ c: Contact; text: string; at: number } | null>(null);
+  const [last, setLast] = useState<{ c: Contact; text: string; at: number; morning?: boolean } | null>(null);
 
   useEffect(() => {
     let alive = true;
     void (async () => {
-      let best: { c: Contact; text: string; at: number } | null = null;
+      let best: { c: Contact; text: string; at: number; morning?: boolean } | null = null;
+      const now = Date.now();
       for (const c of contacts) {
         const rows = await loadMsgs(c.id);
         // ⚠️ **只看它说的最后一句**，不是整段对话的最后一条。
         // 她自己刚发的那句显示在锁屏上没有任何意义。
-        const m = [...rows].reverse().find((x) => x.role === "assistant" && x.content.trim());
-        if (m && (!best || m.at > best.at)) best = { c, text: m.content.trim(), at: m.at };
+        // ⚠️ 明早才解封的那句，到点之前**不能**上锁屏——那句的 at 在未来，
+        // 不滤的话它永远是「最新的一条」，当晚就把惊喜摆出来了。
+        const m = [...rows]
+          .reverse()
+          .find((x) => x.role === "assistant" && x.content.trim() && revealed(x, now));
+        if (m && (!best || m.at > best.at))
+          best = { c, text: m.content.trim(), at: m.at, morning: !!m.morning };
       }
       if (alive) setLast(best);
     })();
@@ -107,16 +113,19 @@ export function LockScreen({
                   {displayName(last.c)}
                 </span>
                 <span className="text-[10px] shrink-0" style={{ color: "var(--ink-faint)" }}>
-                  {new Date(last.at).getHours()}:
-                  {String(new Date(last.at).getMinutes()).padStart(2, "0")}
+                  {/* 昨晚留的那句不写几点：「5:00」是它解封的时刻，不是它说话的时刻 */}
+                  {last.morning
+                    ? "昨晚给你留的"
+                    : `${new Date(last.at).getHours()}:${String(new Date(last.at).getMinutes()).padStart(2, "0")}`}
                 </span>
               </span>
               <span
                 className="block text-[12px] leading-relaxed mt-0.5"
                 style={{
-                  color: "var(--ink-dim)",
+                  // 留给她的那句是写来让她读的，不是一条通知预览：字深一点、多给一行
+                  color: last.morning ? "var(--ink)" : "var(--ink-dim)",
                   display: "-webkit-box",
-                  WebkitLineClamp: 2,
+                  WebkitLineClamp: last.morning ? 3 : 2,
                   WebkitBoxOrient: "vertical",
                   overflow: "hidden",
                 }}

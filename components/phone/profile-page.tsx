@@ -1,4 +1,5 @@
 "use client";
+import { MY_PRESETS, liveStatus, statusLabel } from "@/lib/os/status";
 import { useEffect, useState } from "react";
 import { StatusBar } from "./status-bar";
 import { Avatar } from "./avatar";
@@ -82,21 +83,35 @@ export type Who = {
   /// 一起听。只有联系人有。
   songs?: number;
   together?: number;
+  /// 状态（lib/os/status.ts）。过期的在这一页里当没有
+  status?: { word: string; text?: string; at: number } | null;
 };
 
 export function ProfilePage({
   who,
   onEdit,
   onChat,
+  onSetStatus,
   onClose,
 }: {
   who: Who;
   onEdit: () => void;
   /// 自己的主页没有「发消息」
   onChat?: () => void;
+  /// 只有自己的主页能改状态。它的状态由它自己设（set_status），她这边只看
+  onSetStatus?: (word: string, text: string) => void;
   onClose: () => void;
 }) {
   const contact = who;
+  const live = liveStatus(contact.status ?? null);
+  const [editing, setEditing] = useState(false);
+  const [word, setWord] = useState("");
+  const [note, setNote] = useState("");
+  const openEditor = () => {
+    setWord(live?.word ?? "");
+    setNote(live?.text ?? "");
+    setEditing(true);
+  };
   const banner = useContactImage("banner", contact.id, contact.bannerAt);
 
   /// ⚠️ **横幅那一条要按横幅自己的深浅翻。**
@@ -204,8 +219,90 @@ export function ProfilePage({
                 本名 {realName}
               </div>
             )}
+            {/* 状态。它的只能看；自己的点一下就能改。没设的时候，别人那页什么都不显示，
+                自己那页显示一个「设个状态」——空着的地方要么能按，要么就别占位置 */}
+            {(live || onSetStatus) && (
+              <button
+                disabled={!onSetStatus}
+                onClick={openEditor}
+                className="mt-1.5 inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[12px] max-w-full disabled:cursor-default"
+                style={{
+                  background: "color-mix(in oklab, var(--ink) 8%, transparent)",
+                  color: live ? "var(--ink-dim)" : "var(--ink-faint)",
+                }}
+              >
+                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: contact.tint }} />
+                <span className="truncate">{live ? statusLabel(live) : "设个状态"}</span>
+              </button>
+            )}
           </div>
         </div>
+
+        {editing && onSetStatus && (
+          // ⚠️ **就地展开，不弹一层。** 这一页本身在滚，里面再叠一层 absolute，
+          // 位置会跟着滚动跑；展开在内容里就没有这个问题。
+          <div className="mt-3 rounded-2xl p-3" style={{ background: "color-mix(in oklab, var(--ink) 6%, transparent)" }}>
+            <div className="flex flex-wrap gap-1.5">
+              {MY_PRESETS.map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setWord(p)}
+                  className="rounded-full px-2.5 py-1 text-[12px]"
+                  style={{
+                    background: word === p ? "var(--ink)" : "color-mix(in oklab, var(--ink) 8%, transparent)",
+                    color: word === p ? "var(--glass-tint)" : "var(--ink-dim)",
+                  }}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+            <input
+              value={word}
+              onChange={(e) => setWord(e.target.value.slice(0, 8))}
+              placeholder="或者自己写一个词"
+              className="w-full mt-2.5 rounded-xl px-3 py-2 text-[13px] outline-none bg-transparent"
+              style={{ color: "var(--ink)", border: "1px solid var(--glass-edge)" }}
+            />
+            <input
+              value={note}
+              onChange={(e) => setNote(e.target.value.slice(0, 30))}
+              placeholder="再补一句（可以不写）"
+              className="w-full mt-2 rounded-xl px-3 py-2 text-[13px] outline-none bg-transparent"
+              style={{ color: "var(--ink)", border: "1px solid var(--glass-edge)" }}
+            />
+            <div className="flex items-center justify-end gap-4 pt-2.5 text-[13px]">
+              {live && (
+                <button
+                  onClick={() => {
+                    onSetStatus("", "");
+                    setEditing(false);
+                  }}
+                  style={{ color: "var(--ink-faint)" }}
+                >
+                  清掉
+                </button>
+              )}
+              <button onClick={() => setEditing(false)} style={{ color: "var(--ink-faint)" }}>
+                算了
+              </button>
+              <button
+                disabled={!word.trim()}
+                onClick={() => {
+                  onSetStatus(word.trim(), note.trim());
+                  setEditing(false);
+                }}
+                className="disabled:opacity-35"
+                style={{ color: "var(--ink)" }}
+              >
+                好了
+              </button>
+            </div>
+            <p className="text-[11px] leading-relaxed pt-1.5" style={{ color: "var(--ink-faint)" }}>
+              24 小时后自己消失。它看得到，说话会跟着调。
+            </p>
+          </div>
+        )}
 
         {!!contact.signature.trim() && (
           <p className="text-[14px] leading-relaxed mt-3.5" style={{ color: "var(--ink-dim)" }}>

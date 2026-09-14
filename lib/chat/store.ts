@@ -19,7 +19,13 @@ export type Msg = {
   /// 转发过来的一条动态（见 Share）。
   share?: Share;
   /// 拍一拍（role 是 event）。her = 她拍了它；them = 它拍回来。
-  pat?: "her" | "them";
+  pat?: "her" | "them" | "self";
+  /// 它给她留的「明早才看得到」的那句（lib/tools.ts 的 leave_morning_note）。
+  /// ⚠️ `at` 就是解封的时刻，所以它在对话里的位置天然就在「早上」。
+  /// 解封之前：聊天页、会话列表、锁屏、发给模型的历史**全都要滤掉它**——
+  /// 漏一处就提前露馅，或者让模型以为自己已经回过话了。统一用下面的 revealed。
+  hiddenUntil?: number;
+  morning?: true;
   at: number;
 };
 
@@ -53,5 +59,8 @@ export async function loadMsgs(contactId: string): Promise<Msg[]> {
 export const saveMsg = (m: Msg) => put("messages", m);
 export const saveMsgs = (ms: Msg[]) => putMany("messages", ms);
 export const clearAllMsgs = () => clearStore("messages");
+
+/// 这条现在能不能被看到（明早才解封的那种，到点之前算看不到）
+export const revealed = (m: Msg, now = Date.now()) => !m.hiddenUntil || m.hiddenUntil <= now;
 
 export { newId } from "@/lib/id";
