@@ -250,7 +250,10 @@ export const TOOLS = [
     type: "function",
     function: {
       name: "check_weather",
-      description: "查天气。不填地方就是她所在的地方。返回现在几度、什么天、体感、风。",
+      description:
+        "查天气。不填地方就是她所在的地方。" +
+        "返回：现在几度什么天、接下来 12 小时里第一场雨（如果有）、今天的高低温、" +
+        "以及明天后天大后天。**问明天要不要带伞也用它**，不用说你只看得到今天。",
       parameters: {
         type: "object",
         properties: { place: { type: "string", description: "城市名。留空 = 她那儿。" } },
@@ -495,6 +498,8 @@ export async function runTool(
       const j = (await res.json()) as {
         place?: string;
         current?: { temp: number; feels?: number; code: number; wind?: number; day: boolean };
+        hourly?: { t: string; temp: number; code: number }[];
+        daily?: { date: string; code: number; max: number; min: number }[];
       };
       const c = j.current;
       if (!c) return "查不到天气。";
@@ -507,7 +512,27 @@ export async function runTool(
         c.wind !== undefined ? `风 ${Math.round(c.wind)} km/h` : "",
         c.day ? "白天" : "夜里",
       ].filter(Boolean);
-      return bits.join(" · ");
+      const lines = [bits.join(" · ")];
+
+      // ⚠️ **接口本来就给了 6 天和 24 小时，只是原来这儿只读了 current。**
+      // 于是它被问「明天要不要带伞」只能答「我只看得到现在」——
+      // 数据在手上却说没有，比真没有更糟。
+      // WMO 码 51 往上都是落下来的东西（雨、雪、冰雹）；雾是 45/48，本来就不在里面
+      const soon = (j.hourly ?? []).slice(0, 12).find((h) => h.code >= 51);
+      if (soon) {
+        const hh = new Date(soon.t).getHours();
+        lines.push(`${hh} 点前后${textOf(soon.code)}。`);
+      }
+
+      const d = j.daily ?? [];
+      if (d[0]) lines.push(`今天 ${d[0].min}~${d[0].max}°，${textOf(d[0].code)}。`);
+      // 只给往后三天。六天全倒出来，它就会开始播报天气预报——
+      // 而她问的从来是「明天要不要带伞」，不是一张表。
+      const names = ["明天", "后天", "大后天"];
+      const rest = d.slice(1, 4).map((x, i) => `${names[i]} ${x.min}~${x.max}° ${textOf(x.code)}`);
+      if (rest.length) lines.push(rest.join("；") + "。");
+
+      return lines.join("\n");
     } catch (e) {
       return `查天气失败：${e instanceof Error ? e.message : String(e)}`;
     }
