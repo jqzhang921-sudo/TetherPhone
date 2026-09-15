@@ -114,8 +114,16 @@ export async function GET(req: Request) {
 
     return Response.json({ error: "不认识的操作" }, { status: 400 });
   } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    // 和 app/api/music/route.ts 同一个理由：「fetch failed」要翻成人话，原因在 cause 里
+    const code = (e as { cause?: { code?: string } })?.cause?.code;
     return Response.json(
-      { error: `连不上音源：${e instanceof Error ? e.message : String(e)}` },
+      {
+        error:
+          why === "fetch failed"
+            ? `连不上音源：${code === "ECONNREFUSED" ? "音源服务没开着" : "音源地址不通"}（${code ?? why}）`
+            : `连不上音源：${why}`,
+      },
       { status: 502 },
     );
   }

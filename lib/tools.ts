@@ -407,7 +407,20 @@ export async function lockedPages(contactId: string) {
   );
 }
 
-export async function runTool(
+/// ⚠️ **哪个工具出错，都不能把这一轮回话一起带走。**
+/// 2026-09-15 她那边：音源服务停了，放歌这一步抛出「fetch failed」，异常一路冒到聊天页——
+/// 这一轮它一个字都没留下；她问「怎么了」，它又去放同一首、又抛，看起来就是它不理人了。
+/// 出错就把原因当成结果还给它，让它自己跟她说。
+export async function runTool(name: string, rawArgs: string, ctx: ToolCtx): Promise<string> {
+  try {
+    return await runToolInner(name, rawArgs, ctx);
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    return `没做成：${why}。跟她如实说一声就好，别装作做成了，这一轮也别再重试同一件事。`;
+  }
+}
+
+async function runToolInner(
   name: string,
   rawArgs: string,
   ctx: ToolCtx,

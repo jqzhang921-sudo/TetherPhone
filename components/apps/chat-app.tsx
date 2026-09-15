@@ -1130,7 +1130,9 @@ export function ChatApp({
                 )}
                 {!!m.content && (
                   <div
-                    className="px-3.5 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap break-words"
+                    // ⚠️ max-w-full 不能省：外面那列是 items-start 的竖排 flex，气泡按内容宽度排，
+                    // 一长串不换行的链接会把它撑出屏幕，break-words 根本没机会断
+                    className="max-w-full px-3.5 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap break-words"
                     // 样式在 lib/os/bubbles.ts。每套都自己立住底，不靠透出壁纸成立。
                     //
                     // ⚠️ **说话那侧的下角收紧到 6px。** 四角全 20 的话，

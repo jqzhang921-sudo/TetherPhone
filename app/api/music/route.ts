@@ -291,8 +291,17 @@ export async function GET(req: Request) {
 
     return Response.json({ error: "不认识的操作" }, { status: 400 });
   } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    // ⚠️ 服务端 fetch 连不上时只会说「fetch failed」，真正的原因在 cause 里。
+    // 看到这四个词没人知道该去开哪个窗口——几乎总是音源服务没在跑（电脑重启过、开它的终端关了）
+    const code = (e as { cause?: { code?: string } })?.cause?.code;
     return Response.json(
-      { error: `连不上音源：${e instanceof Error ? e.message : String(e)}` },
+      {
+        error:
+          why === "fetch failed"
+            ? `连不上音源：${code === "ECONNREFUSED" ? "音源服务没开着" : "音源地址不通"}（${code ?? why}）`
+            : `连不上音源：${why}`,
+      },
       { status: 502 },
     );
   }
