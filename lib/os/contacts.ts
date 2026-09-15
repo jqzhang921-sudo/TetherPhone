@@ -79,9 +79,28 @@ export function blankContact(seed?: Partial<Contact>): Contact {
   };
 }
 
+/// 从库里读出来的图，先抄一份到内存里再用。
+///
+/// ⚠️ IndexedDB 里取出来的 Blob 背后连着库里那份文件，而联系人这条记录之后会被整条重写——
+/// 一起听每 15 秒记一次时长、它改状态、打招呼，都是 put 回去。Safari 上「从库里取出的
+/// Blob 过一阵读不出来」（WebKitBlobResource error 1）的报告很多，读不出来的 Blob
+/// 建出来的地址就是一个空圈。抄进内存之后，它和库里那份就没关系了。
+/// 头像只有几 KB，抄一份不值一提。**没在 Safari 上复现过**，这是按已知的坑做的加固。
+export async function inMemory(b: Blob): Promise<Blob> {
+  try {
+    return new Blob([await b.arrayBuffer()], { type: b.type });
+  } catch {
+    // 已经读不出来了：原样给回去。**别当成没有头像**——那样下次一存，库里就真的没了
+    return b;
+  }
+}
+
 export async function loadContacts(): Promise<Contact[]> {
   const rows = await getAll<Contact>("contacts");
-  return rows.sort((a, b) => a.createdAt - b.createdAt);
+  const out = await Promise.all(
+    rows.map(async (c) => (c.avatar ? { ...c, avatar: await inMemory(c.avatar) } : c)),
+  );
+  return out.sort((a, b) => a.createdAt - b.createdAt);
 }
 
 export const saveContact = (c: Contact) => put("contacts", c);

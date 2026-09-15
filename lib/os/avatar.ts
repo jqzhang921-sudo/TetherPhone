@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { get, put, remove } from "@/lib/db/idb";
 import { PHONE_SCOPE, type Photo } from "@/lib/photos/store";
-import type { Contact } from "./contacts";
+import { inMemory, type Contact } from "./contacts";
 import type { Settings } from "./settings";
 
 /// 一张脸。emoji + 底色是兜底，有 blob 就用 blob。
@@ -77,8 +77,10 @@ export function useMe(settings: Settings): Face {
       return;
     }
     let alive = true;
-    void get<Photo>("photos", ME_ID).then((row) => {
-      if (alive) setBlob(row?.blob);
+    void get<Photo>("photos", ME_ID).then(async (row) => {
+      // 和联系人头像同一个理由：抄进内存再用，别挂在库里那份文件上（见 contacts.ts 的 inMemory）
+      const b = row?.blob ? await inMemory(row.blob) : undefined;
+      if (alive) setBlob(b);
     });
     return () => {
       alive = false;

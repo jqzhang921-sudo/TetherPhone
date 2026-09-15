@@ -28,9 +28,7 @@ import type { Photo } from "@/lib/photos/store";
 import {
   blankContact,
   deleteContact,
-  ensureSeed,
-  loadContacts,
-  saveContact,
+  ensureSeed,  saveContact,
   type Contact,
 } from "@/lib/os/contacts";
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from "@/lib/os/settings";
@@ -151,9 +149,15 @@ export function Phone() {
     });
   };
 
+  /// ⚠️ **改一个人，只换那一个人，不整表重读。**
+  /// 整表重读出来的每个人都是新对象、头像是新的 Blob——所有头像跟着重建地址、重新解码。
+  /// 2026-09-15 量过：它改一次状态，聊天页里它的头像一齐换了一遍图。
+  /// 她说「AI 的头像老是掉」，这是原因之一（另一个在 lib/use-blob-url.ts）。
   const upsertContact = async (c: Contact) => {
     await saveContact(c);
-    setContacts(await loadContacts());
+    setContacts((prev) =>
+      prev.some((x) => x.id === c.id) ? prev.map((x) => (x.id === c.id ? c : x)) : [...prev, c],
+    );
   };
 
   const removeContact = async (id: string) => {
@@ -162,13 +166,13 @@ export function Phone() {
     // 漏了不会报错，只会在库里悄悄攒垃圾。
     await Promise.all([clearContactImage("chatbg", id), clearContactImage("banner", id)]);
     await deleteContact(id);
-    setContacts(await loadContacts());
+    setContacts((prev) => prev.filter((x) => x.id !== id));
   };
 
   const addContact = async () => {
     const c = blankContact();
     await saveContact(c);
-    setContacts(await loadContacts());
+    setContacts((prev) => [...prev, c]);
     showSheet(c);
   };
 

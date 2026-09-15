@@ -1140,7 +1140,8 @@ export function ChatApp({
                     // 圆角互相接上，气泡变成一颗药丸；描边那套最明显，像个按钮。
                     // 缺一个角既压住了这个形状，又顺带指出话是从哪边出来的。
                     style={{
-                      borderRadius: m.role === "user" ? "20px 20px 6px 20px" : "20px 20px 20px 6px",
+                      // 玻璃那套照着播放页，四个角一样圆——Cleo 指着播放页要的就是那个样子
+                      borderRadius: bubble.round ? 18 : m.role === "user" ? "20px 20px 6px 20px" : "20px 20px 20px 6px",
                       ...(m.role === "user" ? bubble.me(contact.bubble) : bubble.them),
                     }}
                   >
@@ -1163,7 +1164,7 @@ export function ChatApp({
             <span className="w-8 shrink-0">
               <Avatar face={faceOf(contact)} size={32} />
             </span>
-            <div className="px-3.5 py-3" style={{ borderRadius: "20px 20px 20px 6px", ...bubble.them }}>
+            <div className="px-3.5 py-3" style={{ borderRadius: bubble.round ? 18 : "20px 20px 20px 6px", ...bubble.them }}>
               <span className="flex gap-1">
                 {[0, 1, 2].map((i) => (
                   <span key={i} className="w-1.5 h-1.5 rounded-full animate-pulse"

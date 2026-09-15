@@ -16,6 +16,8 @@ export type BubbleStyle = {
   me: (tint: string) => React.CSSProperties;
   /// 它那侧。
   them: React.CSSProperties;
+  /// 四个角一样圆。不设就是说话那侧的下角收紧到 6px（理由见聊天页气泡那条注释）
+  round?: boolean;
 };
 
 /// 承载文字的白/暗面。和 .glass 不同：这里的百分比不是为了好看，是为了压住背景。
@@ -29,14 +31,19 @@ const solid = (pct = 88): React.CSSProperties => ({
   border: "1px solid var(--glass-edge)",
 });
 
-/// 玻璃那套两侧一样，抽出来省得写两遍、也省得改一处漏一处
+/// 玻璃那套两侧一样，抽出来省得写两遍、也省得改一处漏一处。
+///
+/// ⚠️ **和播放页的气泡是同一块玻璃（.glass-strong）。** Cleo 2026-09-15 指着播放页说
+/// 「聊天室的气泡可以和这个一样」。之前这里少了高光和阴影、饱和度写死 1.9，
+/// 所以同样叫玻璃，聊天页的比播放页平。改 globals.css 里的 .glass-strong 记得回来对一眼。
 const glassFace: React.CSSProperties = {
   background:
     "color-mix(in oklab, var(--glass-tint) max(var(--glass-alpha-strong), var(--glass-floor-strong, 0%)), transparent)",
   color: "var(--ink)",
-  backdropFilter: "blur(var(--glass-blur)) saturate(1.9)",
-  WebkitBackdropFilter: "blur(var(--glass-blur)) saturate(1.9)",
+  backdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-sat, 1.9))",
+  WebkitBackdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-sat, 1.9))",
   border: "1px solid var(--glass-edge)",
+  boxShadow: "var(--glass-sheen), var(--glass-shadow)",
 };
 
 export const BUBBLES: BubbleStyle[] = [
@@ -61,9 +68,11 @@ export const BUBBLES: BubbleStyle[] = [
   {
     id: "glass",
     name: "都是玻璃",
-    hint: "两边一样，只靠左右分谁说的",
+    hint: "和播放页一样，只靠左右分谁说的",
     me: () => glassFace,
     them: glassFace,
+    // 播放页那种四角一样圆的。她要的就是那个样子
+    round: true,
   },
   {
     id: "ink",

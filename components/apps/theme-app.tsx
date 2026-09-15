@@ -299,13 +299,13 @@ export function ThemeApp({
                   {/* 圆角跟聊天页保持一致，不然挑的时候看到的和真的不是一个形状 */}
                   <span
                     className="self-start px-3 py-1.5 text-[13px]"
-                    style={{ borderRadius: "18px 18px 18px 5px", ...b.them }}
+                    style={{ borderRadius: b.round ? 18 : "18px 18px 18px 5px", ...b.them }}
                   >
                     今天走了很远
                   </span>
                   <span
                     className="self-end px-3 py-1.5 text-[13px]"
-                    style={{ borderRadius: "18px 18px 5px 18px", ...b.me("oklch(0.62 0.14 250)") }}
+                    style={{ borderRadius: b.round ? 18 : "18px 18px 5px 18px", ...b.me("oklch(0.62 0.14 250)") }}
                   >
                     我也是
                   </span>
