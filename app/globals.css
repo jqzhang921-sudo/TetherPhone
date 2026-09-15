@@ -167,6 +167,15 @@ body {
   70% { transform: rotate(-6deg) }
 }
 .anim-pat { animation: pat-shake 460ms var(--ease-ios); transform-origin: 50% 90%; }
+/* 没到日子的信：点了拆不开，信封左右晃一下，像推一扇锁着的门 */
+@keyframes nudge {
+  0%, 100% { transform: translateX(0) }
+  20% { transform: translateX(-7px) }
+  40% { transform: translateX(6px) }
+  60% { transform: translateX(-4px) }
+  80% { transform: translateX(2px) }
+}
+.anim-nudge { animation: nudge 420ms var(--ease-ios); }
 
 /* 滚动条：手机上不该看见 */
 .no-bar { scrollbar-width: none; }

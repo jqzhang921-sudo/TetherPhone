@@ -2,14 +2,22 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   ENVELOPES,
+  OPEN_AT_MAX_DAYS,
   blankLetter,
+  claimDue,
   dayLabel,
+  daysLater,
+  daysUntil,
   deleteLetter,
   envelopeCss,
+  isoDay,
   loadLetters,
-  claimDue,
+  locked,
+  monthLater,
+  parseDay,
   replyDelay,
   saveLetter,
+  shortDay,
   type Letter,
 } from "@/lib/letters/store";
 import { PAPER_RULES, PAPER_TINTS, handInk, paperStyle, type PaperRule } from "@/lib/paper";
@@ -20,18 +28,22 @@ import { PhotoPicker } from "@/components/photos/photo-picker";
 import { loadMsgs } from "@/lib/chat/store";
 import { displayName, type Contact } from "@/lib/os/contacts";
 import { hashOf } from "@/lib/id";
+import { haptic } from "@/lib/os/haptic";
 import type { Settings } from "@/lib/os/settings";
 import { ContactStrip } from "@/components/phone/contact-strip";
 
 /// 信封。封着的时候看得到封口那道 V 和一点封蜡；拆开之后露出里面的纸。
+/// 约了日子还没到的，右下角手写一行哪天拆。
 function Envelope({
   tint,
   sealed,
+  lock,
   paper,
   children,
 }: {
   tint: string;
   sealed: boolean;
+  lock?: string;
   paper?: React.CSSProperties;
   children?: React.ReactNode;
 }) {
@@ -49,6 +61,14 @@ function Envelope({
             className="absolute left-1/2 top-[30px] -translate-x-1/2 w-4 h-4 rounded-full"
             style={{ background: "oklch(0.55 0.16 25 / 0.75)" }}
           />
+          {lock && (
+            <span
+              className="absolute right-4 bottom-2.5 text-[16px]"
+              style={{ fontFamily: "var(--font-hand)", color: "oklch(0.3 0.03 30 / 0.7)" }}
+            >
+              {lock}
+            </span>
+          )}
         </div>
       ) : (
         <div className="p-2">
@@ -60,6 +80,21 @@ function Envelope({
     </div>
   );
 }
+
+/// 写信时「哪天拆」的几个现成选项。**at 每次都现算**——过了零点，「明天」就是另一天了。
+const WHEN: { name: string; at: () => number | null }[] = [
+  { name: "寄到就拆", at: () => null },
+  { name: "明天", at: () => daysLater(1) },
+  { name: "一周后", at: () => daysLater(7) },
+  { name: "一个月后", at: () => monthLater() },
+];
+
+const chip = (on: boolean): React.CSSProperties => ({
+  background: on
+    ? "color-mix(in oklab, var(--glass-tint) 95%, transparent)"
+    : "color-mix(in oklab, var(--glass-tint) 55%, transparent)",
+  color: "var(--ink)",
+});
 
 export function LettersApp({
   contacts,
@@ -78,6 +113,8 @@ export function LettersApp({
   const [note, setNote] = useState<string | null>(null);
   const [photos, setPhotos] = useState<Record<string, Photo>>({});
   const [picking, setPicking] = useState(false);
+  /// 点了一封没到日子的信：那一封晃一下。n 一变 key 就变，连点连晃
+  const [nudge, setNudge] = useState<{ id: string; n: number } | null>(null);
   const contact = contacts.find((c) => c.id === who) ?? contacts[0] ?? null;
 
   const refresh = useCallback(
@@ -119,9 +156,16 @@ export function LettersApp({
           c,
           [
             ...identity(c, settings),
-            `${dayLabel(due.sentAt)}她寄给你一封信：`,
+            due.openAt
+              ? `${dayLabel(due.sentAt)}她寄给你一封信，约好${dayLabel(due.openAt)}才拆。到日子了，你刚拆开：`
+              : `${dayLabel(due.sentAt)}她寄给你一封信：`,
             due.text,
             talk ? `你们最近还说过这些：\n${talk}` : "",
+            // 约了日子的信，是「那天的她」写给「今天的你」的。
+            // ⚠️ 中间这些天它没有在过日子——可以说隔了多久，不能编这些天做了什么
+            due.openAt
+              ? "这封信是那天的她写的，信里说的「现在」是写信那天的现在。隔了这些日子才读到，回的时候可以带上这段时间；但别编你这些天做过什么。"
+              : "",
             "现在你回一封。信比聊天慢，也比聊天沉——不用回应每一句，挑真的想说的那点写。",
             "200~350 字。只输出信的正文，不要称呼行也不要落款，不要任何解释。",
           ]
@@ -169,6 +213,8 @@ export function LettersApp({
 
   // ── 写 ──────────────────────────────────────────────────────
   if (draft) {
+    // 挑的日子不是那几个现成的 → 亮「挑个日子」那颗，上面写着挑的是哪天
+    const custom = !!draft.openAt && !WHEN.some((w) => w.at() === draft.openAt);
     return (
       <div className="flex-1 min-h-0 flex flex-col">
         <div className="shrink-0 flex items-center justify-between px-4 pb-2">
@@ -176,20 +222,30 @@ export function LettersApp({
             style={{ color: "var(--ink-dim)" }}>
             算了
           </button>
+          {!!draft.openAt && (
+            <span className="text-[12px]" style={{ color: "var(--ink-faint)" }}>
+              它{shortDay(draft.openAt)}才拆
+            </span>
+          )}
           <button
             onClick={async () => {
               if (!draft.text.trim()) return setDraft(null);
+              const sentAt = Date.now();
+              // 写到过了零点才寄，挑的「明天」可能已经是今天——那就是寄到就拆
+              const openAt = draft.openAt && draft.openAt > sentAt ? draft.openAt : null;
               // 寄出的同时就定好它大概什么时候回。随机，不然第三封就被认出来了。
+              // 约了日子的从那天零点往后算：它那天才拆，拆了才回
               await saveLetter({
                 ...draft,
-                sentAt: Date.now(),
-                openedAt: Date.now(),
-                replyDueAt: Date.now() + replyDelay(),
+                openAt,
+                sentAt,
+                openedAt: sentAt,
+                replyDueAt: (openAt ?? sentAt) + replyDelay(),
                 replied: false,
               });
               await refresh(contact.id);
               setDraft(null);
-              setNote("寄出去了。");
+              setNote(openAt ? `寄出去了。它要到${shortDay(openAt)}才拆。` : "寄出去了。");
             }}
             className="text-[14px] active:opacity-50"
             style={{ color: "var(--ink)" }}
@@ -233,19 +289,53 @@ export function LettersApp({
         </div>
 
         <div className="shrink-0 px-4 pb-2 flex flex-col gap-2.5">
+          <div className="flex items-center gap-1.5 overflow-x-auto no-bar">
+            <span className="shrink-0 text-[11px] mr-0.5" style={{ color: "var(--ink-faint)" }}>哪天拆</span>
+            {WHEN.map((w) => (
+              <button
+                key={w.name}
+                onClick={() => setDraft({ ...draft, openAt: w.at() })}
+                className="shrink-0 px-2.5 py-1 rounded-full text-[12px]"
+                style={chip(!custom && w.at() === (draft.openAt ?? null))}
+              >
+                {w.name}
+              </button>
+            ))}
+            {/* ⚠️ 日期框透明地盖在这颗上面：手机上点它就是点输入框，系统的日期轮盘自己出来；
+                电脑上 Chrome 点输入框本身不弹日历，要在点击里补一句 showPicker。 */}
+            <label className="relative shrink-0 px-2.5 py-1 rounded-full text-[12px] overflow-hidden" style={chip(custom)}>
+              {custom && draft.openAt ? shortDay(draft.openAt) : "挑个日子"}
+              <input
+                type="date"
+                aria-label="挑一个拆信的日子"
+                min={isoDay(daysLater(1))}
+                max={isoDay(daysLater(OPEN_AT_MAX_DAYS))}
+                value={draft.openAt ? isoDay(draft.openAt) : ""}
+                onClick={(e) => {
+                  try {
+                    (e.currentTarget as HTMLInputElement & { showPicker?: () => void }).showPicker?.();
+                  } catch {
+                    // 已经弹着了，或者浏览器不让——手机上本来就会自己弹
+                  }
+                }}
+                onChange={(e) => {
+                  const at = parseDay(e.target.value);
+                  if (at !== null && at > Date.now() && daysUntil(at) <= OPEN_AT_MAX_DAYS) {
+                    setDraft({ ...draft, openAt: at });
+                  }
+                }}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              />
+            </label>
+          </div>
+
           <div className="flex items-center gap-2">
             {PAPER_RULES.map((r) => (
               <button
                 key={r.id}
                 onClick={() => setDraft({ ...draft, paperRule: r.id as PaperRule })}
                 className="px-3 py-1.5 rounded-full text-[12px]"
-                style={{
-                  background:
-                    draft.paperRule === r.id
-                      ? "color-mix(in oklab, var(--glass-tint) 95%, transparent)"
-                      : "color-mix(in oklab, var(--glass-tint) 55%, transparent)",
-                  color: "var(--ink)",
-                }}
+                style={chip(draft.paperRule === r.id)}
               >
                 {r.name}
               </button>
@@ -332,6 +422,7 @@ export function LettersApp({
           >
             <div className="text-[12px] mb-3" style={{ color: "oklch(0.45 0.02 250)", fontFamily: "var(--font-hand)" }}>
               {dayLabel(reading.sentAt)} · {mine ? `寄给${displayName(contact)}` : `${displayName(contact)}寄来`}
+              {reading.openAt ? ` · 约好${shortDay(reading.openAt)}拆` : ""}
             </div>
             <p className="text-[19px] whitespace-pre-wrap" style={handInk}>
               {reading.text}
@@ -359,8 +450,11 @@ export function LettersApp({
   }
 
   // ── 信箱 ────────────────────────────────────────────────────
+  const now = Date.now();
+  const name = displayName(contact);
+  // 约了日子、还没到的那封不算「在路上」：它还没拆，更谈不上写好了回信
   const onTheWay = rows.some(
-    (l) => l.author === "me" && !l.replied && l.replyDueAt != null && l.replyDueAt > Date.now(),
+    (l) => l.author === "me" && !l.replied && l.replyDueAt != null && l.replyDueAt > now && !locked(l, now),
   );
 
   return (
@@ -384,11 +478,34 @@ export function LettersApp({
 
         {rows.map((l) => {
           const sealed = l.author === "them" && l.openedAt === null;
+          const wait = locked(l, now);
+          const left = l.openAt ? daysUntil(l.openAt, now) : 0;
+          const label =
+            l.author === "me"
+              ? wait
+                ? `寄给${name} · 它${shortDay(l.openAt!, now)}才拆`
+                : `寄给${name}`
+              : !sealed
+                ? `${name}寄来`
+                : wait
+                  ? left <= 1
+                    ? "明天就能拆了"
+                    : `还有 ${left} 天才能拆`
+                  : l.openAt
+                    ? "到日子了，可以拆了"
+                    : "还没拆";
           return (
             <button
               key={l.id}
               onClick={async () => {
                 setNote(null);
+                if (sealed && wait) {
+                  // 没到日子，拆不开。晃一下、说清楚哪天——不然像是点坏了
+                  haptic();
+                  setNudge((p) => ({ id: l.id, n: (p?.n ?? 0) + 1 }));
+                  setNote(`还没到日子，${shortDay(l.openAt!, now)}才能拆。`);
+                  return;
+                }
                 if (sealed) {
                   // 拆信是个动作。拆过之后就不再是「未拆」了，红点也跟着掉。
                   const opened = { ...l, openedAt: Date.now() };
@@ -405,18 +522,23 @@ export function LettersApp({
                 className="block text-[11px] mb-1.5 px-1"
                 style={{ color: "var(--ink-faint)" }}
               >
-                {dayLabel(l.sentAt)} ·{" "}
-                {l.author === "me" ? `寄给${displayName(contact)}` : sealed ? "还没拆" : `${displayName(contact)}寄来`}
+                {dayLabel(l.sentAt)} · {label}
               </span>
-              <Envelope
-                tint={l.envelope}
-                sealed={sealed}
-                paper={paperStyle(l.paperTint, "blank")}
+              <div
+                key={nudge?.id === l.id ? `n${nudge.n}` : "still"}
+                className={nudge?.id === l.id ? "anim-nudge" : undefined}
               >
-                <span className="block text-[15px] line-clamp-2" style={{ ...handInk, lineHeight: "24px" }}>
-                  {l.text}
-                </span>
-              </Envelope>
+                <Envelope
+                  tint={l.envelope}
+                  sealed={sealed}
+                  lock={sealed && wait ? `${shortDay(l.openAt!, now)} 拆` : undefined}
+                  paper={paperStyle(l.paperTint, "blank")}
+                >
+                  <span className="block text-[15px] line-clamp-2" style={{ ...handInk, lineHeight: "24px" }}>
+                    {l.text}
+                  </span>
+                </Envelope>
+              </div>
             </button>
           );
         })}

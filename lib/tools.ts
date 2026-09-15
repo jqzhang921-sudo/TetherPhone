@@ -13,7 +13,7 @@ import {
 } from "@/lib/memory/store";
 import { blankNote, loadNotes, saveNote } from "@/lib/notes/store";
 import { blankEntry } from "@/lib/diary/store";
-import { blankLetter, saveLetter } from "@/lib/letters/store";
+import { OPEN_AT_MAX_DAYS, blankLetter, daysUntil, parseDay, saveLetter, shortDay } from "@/lib/letters/store";
 import { textOf } from "@/lib/weather/wmo";
 import { blankPost, savePost } from "@/lib/moments/store";
 import { newId, saveMsgs, type Msg } from "@/lib/chat/store";
@@ -285,10 +285,17 @@ export const TOOLS = [
       name: "write_letter",
       description:
         "给她写一封信，写完就寄出。信会封着躺在她的信箱里，等她自己去拆。" +
-        "信不是消息：它走得慢，也因此说得下更长、更慢的话。",
+        "信不是消息：它走得慢，也因此说得下更长、更慢的话。" +
+        "可以约一个日子（open_on）：她现在就看得见那个信封，要到那天才拆得开。",
       parameters: {
         type: "object",
-        properties: { text: { type: "string", description: "信的正文" } },
+        properties: {
+          text: { type: "string", description: "信的正文" },
+          open_on: {
+            type: "string",
+            description: "可选。YYYY-MM-DD，她要到这一天才拆得开。不填就是寄到就能拆",
+          },
+        },
         required: ["text"],
       },
     },
@@ -388,6 +395,8 @@ export const toolRules = [
   "写完不用在聊天里复述——真想给她看就 open_diary，那是另一个动作。",
   "**信不是消息的长版本**：信走得慢，写信是因为这话等得起、也值得等。",
   "一次说得完的别写信；想马上让她知道的直接说。同一件事别既写信又在聊天里讲一遍。",
+  "信可以约一个日子才能拆（open_on）：她考试那天、生日、一个月以后回头看今天。**约日子要有那一天的理由**；",
+  "写的时候记得她是那天才读到——那时候的她已经过完了中间这些日子，别写成只对今天说的话。",
   "",
   "查天气（check_weather）和搜索（search_web）是为了**带来一件东西**，不是为了显得知道。",
   "「你那边今晚要下雨，伞在门口」是带来；把天气播报念一遍不是。",
@@ -553,12 +562,35 @@ async function runToolInner(
   if (name === "write_letter") {
     const text = String(args.text ?? "").trim();
     if (!text) return "写空的没意义。";
+    const on = String(args.open_on ?? "").trim();
+    let openAt: number | null = null;
+    if (on) {
+      openAt = parseDay(on);
+      if (openAt === null) return `open_on 要写成 YYYY-MM-DD（比如 2026-10-01），收到的是「${on}」。信没寄出去。`;
+      if (openAt <= Date.now())
+        return "open_on 得是明天或者更晚——今天和以前的日子，约了等于没约。想让她现在就能拆就别填。信没寄出去。";
+      if (daysUntil(openAt) > OPEN_AT_MAX_DAYS) return "约得太远了，三年以内。信没寄出去。";
+    }
     const l = blankLetter(ctx.contact.id, "them");
     // ⚠️ openedAt 必须留 null。信的重点是「她自己去拆」——
     // 这里顺手标成已拆，信就退化成一条长消息了。
-    await saveLetter({ ...l, text });
+    await saveLetter({ ...l, text, openAt });
+    if (openAt) {
+      // 约了日子的信，桌面红点要到那天才亮——今天得有个地方让她知道「有一封在等你」。
+      // 只落一行事件、不带内容：信不进聊天
+      const ev: Msg = {
+        id: newId(),
+        contactId: ctx.contact.id,
+        role: "event",
+        content: `${displayName(ctx.contact)}给你寄了一封信，要到${shortDay(openAt)}才能拆`,
+        at: Date.now(),
+      };
+      await saveMsgs([ev]);
+    }
     await ctx.refresh();
-    return "寄出去了。信封着躺在她的信箱里，等她自己去拆。";
+    return openAt
+      ? `寄出去了。信封上写着${shortDay(openAt)}才能拆——她现在看得见它封在信箱里，拆不开。信里写了什么别在聊天里说。`
+      : "寄出去了。信封着躺在她的信箱里，等她自己去拆。";
   }
 
   // ── 往外看 ────────────────────────────────────────────────

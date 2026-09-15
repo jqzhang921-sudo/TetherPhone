@@ -25,6 +25,13 @@ export type Letter = {
   sentAt: number;
   /// 拆开的时刻。null = 还封着。
   openedAt: number | null;
+  /// 约好哪天才能拆（那天的零点，本地时间）。没有 = 寄到就能拆。
+  ///
+  /// - 她寄的：它要到那天才拆，回信也从那天往后算。
+  /// - 它寄的：她现在就看得见信封，拆不开；到了那天才拆得开。
+  ///
+  /// ⚠️ 没到日子的信，**正文照样不进 DOM**——和所有封着的信一样，不是 CSS 藏起来。
+  openAt?: number | null;
   /// 我寄出的信，它大概什么时候回。它自己写的信不需要这个。
   replyDueAt?: number | null;
   replied?: boolean;
@@ -97,8 +104,73 @@ export function blankLetter(contactId: string, author: Letter["author"]): Letter
   };
 }
 
+// ── 约日子 ─────────────────────────────────────────────────────
+
+/// 约了日子、还没到
+export const locked = (l: Letter, now = Date.now()) => !!l.openAt && l.openAt > now;
+
+/// 约日子最远能约多远。再远，这台手机和这份数据还在不在都说不准
+export const OPEN_AT_MAX_DAYS = 3 * 366;
+
+/// 那一天的零点（本地时间）
+export function dayStartOf(at: number) {
+  const d = new Date(at);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/// n 天之后那天的零点
+export function daysLater(n: number, now = Date.now()) {
+  const d = new Date(dayStartOf(now));
+  d.setDate(d.getDate() + n);
+  return d.getTime();
+}
+
+/// 一个月后的同一天零点。那个月没有这一天就落在月底（1 月 31 日 → 2 月 28 日）
+export function monthLater(now = Date.now()) {
+  const d = new Date(dayStartOf(now));
+  const day = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + 1);
+  const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(day, last));
+  return d.getTime();
+}
+
+/// "2026-09-20" → 那天零点。认不出来、或者根本没有这一天，返回 null
+export function parseDay(s: string): number | null {
+  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s.trim());
+  if (!m) return null;
+  const [y, mo, da] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const d = new Date(y, mo - 1, da);
+  // ⚠️ new Date(2026, 1, 31) 不报错，会自己滚到三月三号——滚了就说明没有这一天
+  if (d.getFullYear() !== y || d.getMonth() !== mo - 1 || d.getDate() !== da) return null;
+  return d.getTime();
+}
+
+/// 零点 → "2026-09-20"（给 <input type="date"> 用）
+export function isoDay(at: number) {
+  const d = new Date(at);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/// 还有几天。按日历天算：今晚十一点看明天拆的信，是「还有 1 天」，不是「还有 1 小时」。
+/// ⚠️ 用 round 不用 floor：夏令时那天不是 24 小时
+export const daysUntil = (at: number, now = Date.now()) =>
+  Math.round((dayStartOf(at) - dayStartOf(now)) / 86_400_000);
+
+/// "9月20日"。不是今年的带上年份
+export function shortDay(at: number, now = Date.now()) {
+  const d = new Date(at);
+  const md = `${d.getMonth() + 1}月${d.getDate()}日`;
+  return d.getFullYear() === new Date(now).getFullYear() ? md : `${d.getFullYear()}年${md}`;
+}
+
 /// 还没拆的（只算它寄来的）。桌面图标上的红点用它。
-export const unreadCount = (rows: Letter[]) =>
-  rows.filter((l) => l.author === "them" && l.openedAt === null).length;
+///
+/// ⚠️ **没到日子的不算。** 一封下个月才能拆的信挂一个月红点，点进去又拆不开，那是折磨。
+/// 到了那天它自己就算进来了——红点亮起来，正好就是「今天可以拆了」。
+export const unreadCount = (rows: Letter[], now = Date.now()) =>
+  rows.filter((l) => l.author === "them" && l.openedAt === null && !locked(l, now)).length;
 
 export { dayLabel } from "@/lib/paper";
